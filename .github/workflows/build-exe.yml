@@ -39,6 +39,14 @@ jobs:
             throw "Self-test failed (exit code $($p.ExitCode))"
           }
 
+      - name: Self-test of the per-app device helper (must not crash)
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath dist\Mixie.exe -ArgumentList "--set-app-device", "4", "-" -PassThru
+          if (-not $p.WaitForExit(30000)) { $p.Kill(); throw "helper hung" }
+          "exit code: $($p.ExitCode)  (0 = done, 3 = interface not on this Windows, 4 = refused)"
+          if (@(0, 3, 4) -notcontains $p.ExitCode) { throw "helper crashed" }
+
       - uses: actions/upload-artifact@v4
         with:
           name: Mixie-exe

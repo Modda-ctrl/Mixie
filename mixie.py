@@ -46,6 +46,7 @@ import traceback  # noqa: E402
 # Mixie.exe (built with PyInstaller) keeps its settings and logs in %LOCALAPPDATA%\Mixie -
 # the same folder the installer uses. Run as a script, everything lives next to mixie.py.
 FROZEN = bool(getattr(sys, "frozen", False))
+HELPER = "--set-app-device" in sys.argv     # a short-lived helper process (no window, no logs)
 SELFTEST = "--selftest" in sys.argv
 if FROZEN:
     _HERE0 = os.path.join(os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"), APP_NAME)
@@ -59,6 +60,8 @@ CRASH_LOG = os.path.join(_HERE0, "crash_log.txt")
 PREV_CRASH_LOG = os.path.join(_HERE0, "crash_log_previous.txt")
 _RUN_MARK = os.path.join(_HERE0, ".running")
 try:
+    if HELPER:
+        raise RuntimeError("helper process: leave the crash log alone")
     if os.path.exists(CRASH_LOG) and os.path.getsize(CRASH_LOG) > 0:
         os.replace(CRASH_LOG, PREV_CRASH_LOG)
     _crash_file = open(CRASH_LOG, "w", encoding="utf-8")
@@ -290,7 +293,7 @@ def install_with_window(groups):
 
 _need = [[p] for p in _missing()]
 _need_extras = _missing_extras()
-if not FROZEN and (_need or _need_extras):     # (Mixie.exe has everything built in)
+if not FROZEN and not HELPER and (_need or _need_extras):     # (Mixie.exe has everything built in)
     _log = ""
     try:
         _log = install_with_window(_need + _need_extras)
@@ -320,6 +323,8 @@ if not FROZEN and (_need or _need_extras):     # (Mixie.exe has everything built
         sys.exit(1)
 
 from pycaw.pycaw import AudioUtilities  # noqa: E402
+
+
 from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont, ImageOps, ImageTk  # noqa: E402
 
 _RS = getattr(Image, "Resampling", Image)
@@ -467,16 +472,17 @@ HOTKEYS = [
     (10, CA, 0x32, ("profile", "Music"), "Ctrl + Alt + 2", "Music profile"),
     (11, CA, 0x4E, ("mute_mic",), "Ctrl + Alt + N", "Mute / unmute your microphone"),
     (12, CA, 0x44, ("debug",), "Ctrl + Alt + D", "Debug mode on / off"),
+    (13, CA, 0x48, ("toggle_window",), "Ctrl + Alt + H", "Show / hide Mixie"),
 ]
 MEDIA_VK = {"play": 0xB3, "next": 0xB0, "prev": 0xB1}
 
 # ------------------------------------------------------------ outfits
 OUTFITS = ["auto", "bow", "headphones", "cat", "bunny", "crown", "flowers",
-           "beanie", "cap", "sunglasses", "horns", "witch", "santa"]
+           "beanie", "cap", "sunglasses", "horns", "witch", "santa", "party"]
 OUTFIT_NAMES = {"auto": "Automatic", "bow": "Bow", "headphones": "Headphones",
                 "cat": "Cat ears", "santa": "Santa hat", "witch": "Witch hat", "sunglasses": "Sunglasses",
                 "crown": "Crown", "bunny": "Bunny ears", "beanie": "Beanie", "flowers": "Flower crown",
-                "cap": "Cap", "horns": "Devil horns"}
+                "cap": "Cap", "horns": "Devil horns", "party": "Party hat"}
 
 
 def season_outfit():
@@ -987,6 +993,12 @@ def draw_accessory(put, ox, oy, acc):
         at(8, -1, "W")
         at(4, -1, "c")
         at(5, -2, "c")
+    elif acc == "party":           # striped party hat with a pompom
+        for hy, a, b in ((1, 4, 11), (0, 5, 10), (-1, 6, 9), (-2, 6, 9), (-3, 7, 8), (-4, 7, 8)):
+            for hx in range(a, b + 1):
+                at(hx, hy, "Y" if (hx + hy) % 3 == 0 else ("q" if (hx - hy) % 4 == 0 else "R"))
+        for hx, hy in ((7, -5), (8, -5), (7, -6), (8, -6)):
+            at(hx, hy, "W")
     elif acc == "horns":           # little devil horns
         for hx, hy in ((3, 0), (3, -1), (2, -2), (2, -3), (12, 0), (12, -1), (13, -2), (13, -3)):
             at(hx, hy, "N")
@@ -1028,6 +1040,7 @@ ARMS = {
     "pump": [(-1, 0), (-2, -1), (-3, -2), (-4, -2), (-5, -3), (-5, -4), (-5, -5), (-6, -5)],  # fist up high
     "low": [(-1, 0), (-2, 1), (-3, 2), (-4, 2)],                   # arm out low
     "high": [(-1, 0), (-2, -1), (-3, -1), (-4, -1), (-5, -2)],     # arm out high
+    "ears": [(-1, 0), (-2, -1), (-3, -2), (-4, -3), (-5, -4), (-5, -5), (-5, -6), (-5, -7)],  # hands on her ears
 }
 FRAMES = [
     dict(la="up", ra="up", b=0, sway=0, legs="both", note="l", sing=True),
@@ -1188,6 +1201,9 @@ WAVE_FRAMES = [
     dict(la="down", ra="wave1", b=0, sway=0, legs="both", eyes="happy", sing=True),
     dict(la="down", ra="wave2", b=0, sway=0, legs="both", eyes="happy", sing=True),
 ]
+# Too loud: hands over her ears
+EARS_FRAMES = [dict(la="ears", ra="ears", b=1, sway=0, legs="both", eyes="closed", mouth="open"),
+               dict(la="ears", ra="ears", b=0, sway=0, legs="both", eyes="closed", mouth="small")]
 # Surprised (woken up, or clicked)
 SURPRISE_FRAMES = [dict(la="out", ra="out", b=0, sway=0, legs="jump", mouth="open")]
 # Sleeps after a long time without music: breathes calmly
@@ -1214,6 +1230,9 @@ FX_PATTERNS = {
     "heart": [".XX.XX.", "XXXXXXX", "XXXXXXX", ".XXXXX.", "..XXX..", "...X..."],
     "z": ["XXXX", "..X.", ".X..", "XXXX"],
     "star": [".X.", "XXX", ".X."],
+    "flake": ["X.X", ".X.", "X.X"],
+    "bat": ["X.....X", "XX.X.XX", "XXXXXXX", ".X.X.X."],
+    "confetti": ["XX", "XX"],
 }
 
 
@@ -1798,6 +1817,7 @@ class Off:
     display = None
     paused = False
     app = None
+    video = False
 
 
 SUFFIXES = (" \u2014 Mozilla Firefox", " - Mozilla Firefox", " - Google Chrome", " - Microsoft\u200b Edge",
@@ -1835,6 +1855,14 @@ class NowPlaying:
     IDLE_TITLES = {"spotify", "spotify premium", "spotify free", "mozilla firefox", "google chrome",
                    "microsoft edge", "vlc media player", ""}
     MEDIA_HINTS = ("youtube", "soundcloud", "spotify", "twitch", "bandcamp", "tidal", "deezer", "music")
+    # Watch mode: films, series and streams. (A music video still counts as music: Mixie only
+    # settles down to watch when there is no steady beat.)
+    VIDEO_HINTS = ("youtube", "twitch", "netflix", "disney+", "prime video", "primevideo", "hbo max", "viaplay",
+                   "svt play", "tv4 play", "crunchyroll", "plex", "jellyfin", "kick", "dr tv", "nrk tv",
+                   "apple tv", "paramount+", "skyshowtime", "max |", "| max")
+    VIDEO_PROCS = {"vlc.exe", "mpv.exe", "mpc-hc.exe", "mpc-hc64.exe", "mpc-be64.exe", "potplayer.exe",
+                   "potplayermini64.exe", "potplayermini.exe", "kodi.exe", "plex.exe", "applicationframehost.exe",
+                   "stremio.exe"}
 
     def __init__(self):
         self.title = None
@@ -1844,6 +1872,7 @@ class NowPlaying:
         self.paused = False
         self.app = None
         self.spotify_idle = False
+        self.video = False      # a film / series / stream is open
         self._names = {}
         self._misses = 0
         threading.Thread(target=self.run, daemon=True).start()
@@ -1879,7 +1908,7 @@ class NowPlaying:
                 pid = wintypes.DWORD()
                 user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
                 name = self.proc_name(pid.value)
-                if name in self.PLAYERS:
+                if name in self.PLAYERS or name in self.VIDEO_PROCS:
                     found.append((name, buf.value))
             except Exception:
                 pass
@@ -1888,8 +1917,18 @@ class NowPlaying:
         user32.EnumWindows(proto(cb), 0)
         return found
 
+    def is_video(self, name, title):
+        low = title.lower()
+        if "youtube music" in low or low.strip() in self.IDLE_TITLES:
+            return False
+        if name in self.VIDEO_PROCS and name != "applicationframehost.exe":
+            return True
+        return any(h in low for h in self.VIDEO_HINTS)
+
     def current(self):
         wins = self.titles()
+        self.video = any(self.is_video(n, t) for n, t in wins)
+        wins = [(n, t) for n, t in wins if n in self.PLAYERS]
         self.spotify_idle = any(n == "spotify.exe" and t.strip().lower() in self.IDLE_TITLES for n, t in wins)
         for name, title in wins:      # Spotify first
             if name == "spotify.exe" and title.strip().lower() not in self.IDLE_TITLES:
@@ -2051,6 +2090,105 @@ def set_output_device(dev_id):
     AudioUtilities.SetDefaultDevice(dev_id, roles=[ERole.eConsole, ERole.eMultimedia, ERole.eCommunications])
 
 
+# ---------------------------------------------------------------- one app on another audio device
+# Windows can send one program's sound to its own device (Settings -> Sound -> App volume and device
+# preferences). There is no official API for it; this uses the same internal interface as EarTrumpet.
+# It runs in a separate little process, so that if Windows changes the interface, only that process fails.
+_POLICY_IIDS = ("{ab3d4648-e242-459f-b02f-541c70306324}",    # Windows 10 21H2 and newer, Windows 11
+                "{2a59116d-6c4f-45e0-a74f-707e3fef9258}")    # older Windows 10
+_RENDER_IFACE = "{e6327cad-dcec-4949-ae8a-991e976a79d2}"
+
+
+def _set_app_device_here(pids, dev_id):
+    """Runs in the helper process. dev_id "" = back to the default device. Returns an exit code."""
+    combase = ctypes.windll.combase
+    combase.RoInitialize(1)
+    cls = "Windows.Media.Internal.AudioPolicyConfig"
+    hcls = ctypes.c_void_p()
+    combase.WindowsCreateString(ctypes.c_wchar_p(cls), len(cls), ctypes.byref(hcls))
+
+    class GUID(ctypes.Structure):
+        _fields_ = [("a", ctypes.c_ulong), ("b", ctypes.c_ushort), ("c", ctypes.c_ushort), ("d", ctypes.c_ubyte * 8)]
+    factory = ctypes.c_void_p()
+    for iid_s in _POLICY_IIDS:
+        iid = GUID()
+        ctypes.windll.ole32.CLSIDFromString(ctypes.c_wchar_p(iid_s), ctypes.byref(iid))
+        if combase.RoGetActivationFactory(hcls, ctypes.byref(iid), ctypes.byref(factory)) == 0 and factory.value:
+            break
+    else:
+        return 3
+    hdev = ctypes.c_void_p()
+    if dev_id:
+        full = f"\\\\?\\SWD#MMDEVAPI#{dev_id}#{_RENDER_IFACE}"
+        combase.WindowsCreateString(ctypes.c_wchar_p(full), len(full), ctypes.byref(hdev))
+    vtable = ctypes.cast(ctypes.cast(factory, ctypes.POINTER(ctypes.c_void_p))[0], ctypes.POINTER(ctypes.c_void_p))
+    set_fn = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, ctypes.c_uint, ctypes.c_int, ctypes.c_int,
+                                ctypes.c_void_p)(vtable[25])          # SetPersistedDefaultAudioEndpoint
+    bad = 0
+    for pid in pids:
+        for role in (0, 1):                                            # eConsole, eMultimedia
+            if set_fn(factory, int(pid), 0, role, hdev) != 0:          # 0 = eRender
+                bad += 1
+    return 0 if bad == 0 else 4
+
+
+def set_app_device(pids, dev_id):
+    """Starts the helper process. True when Windows accepted the change."""
+    args = ["--set-app-device", ",".join(str(p) for p in pids), dev_id or "-"]
+    cmd = [SCRIPT] + args if FROZEN else [window_python(), SCRIPT] + args
+    try:
+        res = subprocess.run(cmd, creationflags=NO_WINDOW, timeout=15)
+        return res.returncode == 0
+    except Exception as e:
+        log_error(f"Per-app device: {e}")
+        return False
+
+
+# ---------------------------------------------------------------- updates and start with Windows
+def version_tuple(v):
+    nums = [int(x) for x in re.findall(r"\d+", v or "")[:3]]
+    return tuple(nums + [0] * (3 - len(nums)))
+
+
+def latest_release():
+    """(version, page) of the newest Mixie release on GitHub, or None."""
+    import urllib.request
+    req = urllib.request.Request("https://api.github.com/repos/Modda-ctrl/Mixie/releases/latest",
+                                 headers={"User-Agent": f"Mixie/{APP_VERSION}",
+                                          "Accept": "application/vnd.github+json"})
+    with urllib.request.urlopen(req, timeout=8) as r:
+        data = json.loads(r.read().decode("utf-8"))
+    return data.get("tag_name", ""), data.get("html_url", REPO_URL + "/releases/latest")
+
+
+RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+
+
+def autostart_command():
+    return f'"{SCRIPT}"' if FROZEN else f'"{window_python()}" "{SCRIPT}"'
+
+
+def autostart_get():
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY) as k:
+            return winreg.QueryValueEx(k, APP_NAME)[0]
+    except Exception:
+        return None
+
+
+def autostart_set(on):
+    import winreg
+    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_SET_VALUE) as k:
+        if on:
+            winreg.SetValueEx(k, APP_NAME, 0, winreg.REG_SZ, autostart_command())
+        else:
+            try:
+                winreg.DeleteValue(k, APP_NAME)
+            except FileNotFoundError:
+                pass
+
+
 def short_device(name, n=26):
     # "Headphones (Arctis 7 Game)" -> "Arctis 7 Game"; long names are shortened
     m = re.match(r"^[^()]*\((.+)\)\s*$", name or "")
@@ -2163,8 +2301,10 @@ def collect_sessions():
             vol = s.SimpleAudioVolume
         except Exception:
             continue
-        g = groups.setdefault(key, {"vols": [], "proc": None, "meters": []})
+        g = groups.setdefault(key, {"vols": [], "proc": None, "meters": [], "pids": set()})
         g["vols"].append(vol)
+        if proc:
+            g["pids"].add(proc.pid)
         if key in VOICE_APPS and IAudioMeterInformation is not None:
             try:
                 g["meters"].append(s._ctl.QueryInterface(IAudioMeterInformation))
@@ -2407,6 +2547,33 @@ def draw_panel_icon(d, cx, cy, s, kind, color, w):
         d.rounded_rectangle((cx - h, cy - h * 0.55, cx + h, cy + h * 0.75), radius=h * 0.15, outline=color, width=w)
         d.line((cx - h, cy - h * 0.55, cx - h, cy - h * 0.8, cx - h * 0.2, cy - h * 0.8, cx, cy - h * 0.55),
                fill=color, width=w)
+    elif kind == "leaf":     # low power
+        d.chord((cx - h, cy - h * 0.7, cx + h, cy + h * 0.9), 200, 20, outline=color, width=w)
+        d.line((cx - h * 0.7, cy + h * 0.8, cx + h * 0.7, cy - h * 0.4), fill=color, width=w)
+    elif kind == "tv":       # watch mode
+        d.rounded_rectangle((cx - h, cy - h * 0.6, cx + h, cy + h * 0.75), radius=h * 0.18, outline=color, width=w)
+        d.line((cx - h * 0.4, cy - h, cx, cy - h * 0.6, cx + h * 0.4, cy - h), fill=color, width=w)
+    elif kind == "cake":     # birthday
+        d.rounded_rectangle((cx - h, cy - h * 0.1, cx + h, cy + h * 0.85), radius=h * 0.15, outline=color, width=w)
+        d.line((cx - h, cy + h * 0.3, cx + h, cy + h * 0.3), fill=color, width=w)
+        d.line((cx, cy - h * 0.1, cx, cy - h * 0.6), fill=color, width=w)
+        d.ellipse((cx - w, cy - h * 0.95 - w, cx + w, cy - h * 0.65 + w), fill=color)
+    elif kind == "update":   # circular arrow
+        d.arc((cx - h * 0.85, cy - h * 0.85, cx + h * 0.85, cy + h * 0.85), 40, 330, fill=color, width=w)
+        d.polygon([(cx + h * 0.95, cy - h * 0.75), (cx + h * 0.95, cy + h * 0.05), (cx + h * 0.2, cy - h * 0.3)],
+                  fill=color)
+    elif kind == "check":
+        d.line((cx - h * 0.8, cy, cx - h * 0.2, cy + h * 0.6, cx + h * 0.85, cy - h * 0.6), fill=color, width=w)
+    elif kind == "plus":
+        d.line((cx - h * 0.8, cy, cx + h * 0.8, cy), fill=color, width=w)
+        d.line((cx, cy - h * 0.8, cx, cy + h * 0.8), fill=color, width=w)
+    elif kind == "trash":
+        d.rounded_rectangle((cx - h * 0.65, cy - h * 0.45, cx + h * 0.65, cy + h), radius=h * 0.12, outline=color,
+                            width=w)
+        d.line((cx - h, cy - h * 0.5, cx + h, cy - h * 0.5), fill=color, width=w)
+        d.line((cx - h * 0.3, cy - h * 0.8, cx + h * 0.3, cy - h * 0.8), fill=color, width=w)
+    elif kind == "dot":
+        d.ellipse((cx - h * 0.35, cy - h * 0.35, cx + h * 0.35, cy + h * 0.35), fill=color)
     elif kind == "star":     # "by season"
         pts = []
         for i in range(10):
@@ -2476,17 +2643,41 @@ class Panel(tk.Toplevel):
         return (len(it["tiles"]) + it.get("cols", 4) - 1) // it.get("cols", 4)
 
     def layout(self):
-        y = 10
-        self.rows = []
+        heights = []
         for it in self.items:
             if it["k"] == "tiles":
-                h = self.tile_rows(it) * 82 + 8
+                heights.append(self.tile_rows(it) * 82 + 8)
             else:
-                h = self.ROW_H[it["k"]]
-            self.rows.append((it, y, y + h))
-            y += h
-        self.W = self.p(self.wl)
-        self.H = self.p(y + 8)
+                heights.append(self.ROW_H[it["k"]])
+        body = [i for i, it in enumerate(self.items) if it["k"] != "foot"]
+        total = sum(heights[i] for i in body)
+        # A long panel is split into two columns (at a section title), so it fits on any screen
+        split = None
+        if total > 560:
+            run = 0
+            best = None
+            for i in body:
+                if self.items[i]["k"] == "head" and i > 0:
+                    diff = abs(run - total / 2)
+                    if best is None or diff < best:
+                        best, split = diff, i
+                run += heights[i]
+        self.rows = []
+        y, ox, col_h = 10, 0, 0
+        for i in body:
+            if i == split:
+                col_h, y, ox = y, 10, self.wl
+            self.rows.append((self.items[i], y, y + heights[i], ox))
+            y += heights[i]
+        bottom = max(y, col_h)
+        for i, it in enumerate(self.items):
+            if it["k"] == "foot":
+                self.rows.append((it, bottom, bottom + heights[i], 0))
+                bottom += heights[i]
+        self.cols = 2 if split is not None else 1
+        self.total_w = self.wl * self.cols
+        self.W = self.p(self.total_w)
+        self.H = self.p(bottom + 8)
 
     # -- drawing
     def render(self):
@@ -2504,68 +2695,73 @@ class Panel(tk.Toplevel):
         def X(v):
             return v * u * S
 
-        for idx, (it, y0, y1) in enumerate(self.rows):
+        if self.cols > 1:     # line between the two columns
+            d.line((X(self.wl), X(18), X(self.wl), H * S - X(46)), fill=PANEL_LINE, width=max(1, round(u * S)))
+        for idx, (it, y0, y1, ox) in enumerate(self.rows):
+
+            def XX(v, ox=ox):
+                return X(v + ox)
             k = it["k"]
             hov = self.hover == idx
             if k == "head":
-                texts.append((self.p(P + 4), self.p(y1 - 9), it["t"].upper(), font("semi", self.p(10)), SUB, "ls"))
+                texts.append((self.p(ox + P + 4), self.p(y1 - 9), it["t"].upper(), font("semi", self.p(10)), SUB, "ls"))
             elif k == "sep":
-                d.line((X(P), X((y0 + y1) / 2), X(self.wl - P), X((y0 + y1) / 2)), fill=PANEL_LINE,
+                d.line((XX(P), X((y0 + y1) / 2), XX(self.wl - P), X((y0 + y1) / 2)), fill=PANEL_LINE,
                        width=max(1, round(u * S)))
             elif k in ("toggle", "act"):
                 enabled = it.get("on", True)
                 if hov and enabled:
-                    d.rounded_rectangle((X(6), X(y0 + 2), X(self.wl - 6), X(y1 - 2)), radius=X(9), fill=PANEL_HOVER)
+                    d.rounded_rectangle((XX(6), X(y0 + 2), XX(self.wl - 6), X(y1 - 2)), radius=X(9), fill=PANEL_HOVER)
                 col = TEXT if enabled else DIM
                 if it.get("danger"):
                     col = (255, 110, 130, 255)
                 tx = P + 4
                 if it.get("icon"):
-                    icons.append((it["icon"], P + 12, (y0 + y1) / 2, PINK if enabled and not it.get("danger") else col))
+                    icons.append((it["icon"], ox + P + 12, (y0 + y1) / 2, PINK if enabled and not it.get("danger") else col))
                     tx = P + 32
                 f13 = font("regular", self.p(13))
                 room = self.wl - tx - P - (50 if k == "toggle" else 34 if it.get("hint") else 4)
-                texts.append((self.p(tx), self.p((y0 + y1) / 2), fit_text(it["t"], f13, self.p(room)), f13, col, "lm"))
+                texts.append((self.p(ox + tx), self.p((y0 + y1) / 2), fit_text(it["t"], f13, self.p(room)), f13, col, "lm"))
                 if k == "toggle":
                     on = bool(it["get"]())
                     tw, th = 38, 22
                     x1, cy = self.wl - P - 2, (y0 + y1) / 2
                     x0 = x1 - tw
                     track = PINK if on and enabled else ((84, 86, 98, 255) if enabled else (48, 50, 58, 255))
-                    d.rounded_rectangle((X(x0), X(cy - th / 2), X(x1), X(cy + th / 2)), radius=X(th / 2), fill=track)
+                    d.rounded_rectangle((XX(x0), X(cy - th / 2), XX(x1), X(cy + th / 2)), radius=X(th / 2), fill=track)
                     kx = x1 - th / 2 if on else x0 + th / 2
                     r = th / 2 - 3
-                    d.ellipse((X(kx - r), X(cy - r), X(kx + r), X(cy + r)),
+                    d.ellipse((XX(kx - r), X(cy - r), XX(kx + r), X(cy + r)),
                               fill=(255, 255, 255, 255) if enabled else (130, 132, 142, 255))
                 elif it.get("hint"):
-                    texts.append((self.p(self.wl - P - 4), self.p((y0 + y1) / 2), it["hint"],
+                    texts.append((self.p(ox + self.wl - P - 4), self.p((y0 + y1) / 2), it["hint"],
                                   font("regular", self.p(12)), SUB, "rm"))
-                self.hits.append(((0, y0, self.wl, y1), idx, None))
+                self.hits.append(((ox, y0, ox + self.wl, y1), idx, None))
             elif k == "seg":
-                texts.append((self.p(P + 4), self.p(y0 + 14), it["t"], font("regular", self.p(13)), TEXT, "lm"))
+                texts.append((self.p(ox + P + 4), self.p(y0 + 14), it["t"], font("regular", self.p(13)), TEXT, "lm"))
                 opts = it["opts"]
                 cur = it["get"]()
                 sx0, sx1, sy0, sy1 = P + 2, self.wl - P - 2, y0 + 30, y0 + 62
-                d.rounded_rectangle((X(sx0), X(sy0), X(sx1), X(sy1)), radius=X(10), fill=(14, 15, 19, 255))
+                d.rounded_rectangle((XX(sx0), X(sy0), XX(sx1), X(sy1)), radius=X(10), fill=(14, 15, 19, 255))
                 segw = (sx1 - sx0 - 6) / len(opts)
                 for j, (val, label) in enumerate(opts):
                     a = sx0 + 3 + j * segw
                     b = a + segw
                     if val == cur:
-                        d.rounded_rectangle((X(a), X(sy0 + 3), X(b), X(sy1 - 3)), radius=X(8), fill=PINK)
+                        d.rounded_rectangle((XX(a), X(sy0 + 3), XX(b), X(sy1 - 3)), radius=X(8), fill=PINK)
                     elif self.hover == (idx, j):
-                        d.rounded_rectangle((X(a), X(sy0 + 3), X(b), X(sy1 - 3)), radius=X(8), fill=PANEL_HOVER)
-                    texts.append((self.p((a + b) / 2), self.p((sy0 + sy1) / 2), label,
+                        d.rounded_rectangle((XX(a), X(sy0 + 3), XX(b), X(sy1 - 3)), radius=X(8), fill=PANEL_HOVER)
+                    texts.append((self.p(ox + (a + b) / 2), self.p((sy0 + sy1) / 2), label,
                                   font("semi" if val == cur else "regular", self.p(12)),
                                   DARK if val == cur else TEXT, "mm"))
-                    self.hits.append(((a, sy0, b, sy1), idx, j))
+                    self.hits.append(((ox + a, sy0, ox + b, sy1), idx, j))
             elif k == "tiles":
                 cols = it.get("cols", 4)
                 tw = (self.wl - 2 * P) / cols
                 cur = it["get"]()
                 for j, (key, img, label) in enumerate(it["tiles"]):
                     r_, c_ = divmod(j, cols)
-                    a, top = P + c_ * tw, y0 + 4 + r_ * 82
+                    a, top = ox + P + c_ * tw, y0 + 4 + r_ * 82
                     box = (a + 4, top, a + tw - 4, top + 56)
                     sel, hv = key == cur, self.hover == (idx, j)
                     d.rounded_rectangle([X(v) for v in box], radius=X(12),
@@ -2576,7 +2772,7 @@ class Panel(tk.Toplevel):
                                   font("semi" if sel else "regular", self.p(11)), TEXT if sel else SUB, "mm"))
                     self.hits.append(((a, top, a + tw, top + 80), idx, j))
             elif k == "foot":
-                texts.append((self.p(self.wl / 2), self.p((y0 + y1) / 2), it["t"], font("regular", self.p(11)),
+                texts.append((self.p(self.total_w / 2), self.p((y0 + y1) / 2), it["t"], font("regular", self.p(11)),
                               (110, 113, 126, 255), "mm"))
         for ic in icons:
             if ic[0] != "img":
@@ -2679,9 +2875,10 @@ class Dialog(tk.Toplevel):
     """A message in Mixie's own style, opened over the Mixie window (on whatever screen it is on).
     Use App.dialog(); it waits until a button is pressed and returns its label (None = closed)."""
 
-    def __init__(self, app, title, text, buttons=("OK",), width=400):
+    def __init__(self, app, title, text, buttons=("OK",), width=400, entry=None):
         super().__init__(app)
         self.app, self.result = app, None
+        self.entry_value = None
         self.u = u = app.S
         self.overrideredirect(True)
         self.configure(bg=PANEL_KEY)
@@ -2716,7 +2913,8 @@ class Dialog(tk.Toplevel):
                     cur = wd
             lines.append(cur)
         lh = p(19)
-        H = p(24) + p(26) + p(10) + len(lines) * lh + p(22) + p(38) + p(22)
+        entry_h = p(48) if entry is not None else 0
+        H = p(24) + p(26) + p(10) + len(lines) * lh + entry_h + p(22) + p(38) + p(22)
         # buttons, right-aligned; the first one is the main (pink) button
         self.btns = []
         x = W - p(24)
@@ -2733,6 +2931,14 @@ class Dialog(tk.Toplevel):
         self.item = self.canvas.create_image(0, 0, anchor="nw")
         self.photo = None
         self.render()
+        self.entry = None
+        if entry is not None:      # a text field (profile name, birthday ...)
+            self.entry = tk.Entry(self, font=("Segoe UI", max(9, round(11 * u))), bg="#0e0f13", fg="#ffffff",
+                                  insertbackground="#ff8cc6", relief="flat", highlightthickness=2,
+                                  highlightbackground="#3a3c48", highlightcolor="#ff8cc6")
+            self.entry.insert(0, entry)
+            ey = p(36) + p(26) + p(10) + len(lines) * lh + p(4)
+            self.canvas.create_window(p(24), ey, anchor="nw", window=self.entry, width=W - p(48), height=p(34))
         ax = app.winfo_rootx() + app.winfo_width() / 2
         ay = app.winfo_rooty() + min(app.winfo_height() / 2, p(260))
         x, y = place_on_monitor(self, W, H, ax, ay)
@@ -2745,6 +2951,9 @@ class Dialog(tk.Toplevel):
         try:
             self.focus_force()
             self.grab_set()
+            if self.entry is not None:
+                self.entry.focus_set()
+                self.entry.select_range(0, "end")
         except Exception:
             pass
 
@@ -2802,6 +3011,8 @@ class Dialog(tk.Toplevel):
 
     def finish(self, result):
         self.result = result
+        if self.entry is not None:
+            self.entry_value = self.entry.get().strip()
         try:
             self.grab_release()
         except Exception:
@@ -2825,6 +3036,20 @@ class App(tk.Tk):
         self.cfg.setdefault("dress_follow", True)
         self.cfg.setdefault("debug", False)
         self.cfg.setdefault("mic_row", True)
+        for k, v in (("watch_mode", True), ("low_power", False), ("auto_profile", False), ("my_profiles", []),
+                     ("birthday", None), ("update_check", True), ("skip_version", None), ("app_devices", {})):
+            self.cfg.setdefault(k, v)
+        self.last_locked_t = 0.0
+        self.video_since = None
+        self.watch_said = 0.0
+        self.late_t = time.time()
+        self.energy_hist = []
+        self.drop_t = 0.0
+        self.season_t = 0.0
+        self.party_t = 0.0
+        self.seen_games = set()
+        self.auto_from = None
+        self.last_game_t = 0.0
         self.wave_stats = [0, 0.0]     # frames drawn, seconds spent (debug mode)
         self.dbg_items = None
         self.dbg_last = {}
@@ -2981,6 +3206,9 @@ class App(tk.Tk):
         self.after(100, self.duck_tick)
         self.after(600, self.start_tray)
         self.after(500, self.debug_tick)
+        if not SELFTEST and not SAFE_MODE:
+            self.after(15000, self.check_updates)
+            self.after(3000, self.fix_autostart)
         if SELFTEST:
             self.after(4000, self.selftest_done)
 
@@ -3552,7 +3780,8 @@ class App(tk.Tk):
         self.draw_header()
         self.wave_stats[0] += 1
         self.wave_stats[1] += time.perf_counter() - t0
-        self.after(WAVE_MS if self.level > 0.02 else WAVE_MS * 2, self.waves)
+        slow = 2 if self.cfg.get("low_power") else 1      # low power mode: half the frame rate
+        self.after((WAVE_MS if self.level > 0.02 else WAVE_MS * 2) * slow, self.waves)
 
     def pick_palette(self, title):
         if title:
@@ -3566,10 +3795,13 @@ class App(tk.Tk):
             self.after_idle(self.build_sprites)
 
     # -- the buddy's outfit
+    def is_birthday(self):
+        return bool(self.cfg.get("birthday")) and time.strftime("%m-%d") == self.cfg.get("birthday")
+
     def current_style(self):
         acc = self.cfg.get("outfit", "auto")
         if acc not in OUTFITS or acc == "auto":
-            acc = season_outfit()
+            acc = "party" if self.is_birthday() else season_outfit()
         if self.cfg.get("dress_follow", True):
             c = PALETTES[self.palette_i][0]
             return {"acc": acc, "D": c, "d": tuple(int(v * 0.66) for v in c)}
@@ -3594,7 +3826,7 @@ class App(tk.Tk):
                 "moves": {name: {eyes: lazy([with_eyes(f, eyes) for f in frames])
                                  for eyes in ("open", "happy", "closed")}
                           for name, frames in DANCE_MOVES.items()},
-                "idle": lazy(IDLE_FRAMES), "wave": lazy(WAVE_FRAMES),
+                "idle": lazy(IDLE_FRAMES), "wave": lazy(WAVE_FRAMES), "ears": lazy(EARS_FRAMES),
                 "surprise": lazy(SURPRISE_FRAMES), "sleep": lazy(SLEEP_FRAMES),
             }
             if len(self.sprite_cache) >= 4:
@@ -3603,6 +3835,7 @@ class App(tk.Tk):
         self.moves = sets["moves"]
         self.idle_sprites = sets["idle"]
         self.wave_sprites = sets["wave"]
+        self.ears_sprites = sets["ears"]
         self.surprise_sprites = sets["surprise"]
         self.sleep_sprites = sets["sleep"]
 
@@ -3654,6 +3887,10 @@ class App(tk.Tk):
              "get": lambda: cfg["compact"], "set": self.toggle_compact},
             {"k": "toggle", "t": "Minimize to the tray", "icon": "tray", "on": tray_ok,
              "get": lambda: cfg["tray"] and tray_ok, "set": self.toggle_tray},
+            {"k": "toggle", "t": "Start with Windows", "icon": "power", "on": sys.platform == "win32",
+             "get": lambda: bool(autostart_get()), "set": self.toggle_autostart},
+            {"k": "toggle", "t": "Low power mode (slower PCs)", "icon": "leaf",
+             "get": lambda: cfg.get("low_power", False), "set": self.toggle_low_power},
             {"k": "head", "t": "Microphone and voice chat"},
             {"k": "toggle", "t": "Show the microphone", "icon": "voice", "on": self.mic_ctl is not None,
              "get": lambda: cfg.get("mic_row", True) and self.mic_ctl is not None, "set": self.toggle_mic_row},
@@ -3674,6 +3911,12 @@ class App(tk.Tk):
         if sys.platform == "win32":
             items.append({"k": "act", "t": "Create desktop shortcut", "icon": "link", "do": self.make_shortcut})
         items += [
+            {"k": "head", "t": "Mixie"},
+            {"k": "toggle", "t": "Watch mode (naps during films)", "icon": "tv",
+             "get": lambda: cfg.get("watch_mode", True), "set": self.toggle_watch},
+            {"k": "act", "t": "Your birthday", "icon": "cake", "hint": self.birthday_hint(), "do": self.set_birthday},
+            {"k": "head", "t": "Help"},
+            {"k": "act", "t": "Check for updates", "icon": "update", "do": lambda: self.check_updates(True)},
             {"k": "toggle", "t": "Debug mode", "icon": "bug",
              "get": lambda: cfg.get("debug", False), "set": self.toggle_debug},
             {"k": "act", "t": "Open Mixie's folder (logs)", "icon": "folder", "do": self.open_data_folder},
@@ -3745,6 +3988,14 @@ class App(tk.Tk):
         self.wait_window(dlg)
         return dlg.result
 
+    def ask_text(self, title, text, value="", ok="Save"):
+        """Asks for a line of text. Returns it, or None when cancelled."""
+        if getattr(self, "panel", None) is not None and not self.panel.closed:
+            self.panel.close()
+        dlg = Dialog(self, title, text, (ok, "Cancel"), 400, entry=value)
+        self.wait_window(dlg)
+        return dlg.entry_value if dlg.result == ok else None
+
     def show_about(self):
         if self.dialog(
                 f"{APP_NAME} {APP_VERSION}",
@@ -3755,20 +4006,30 @@ class App(tk.Tk):
             webbrowser.open(REPO_URL)
 
     def open_profile_menu(self):
-        m = self.new_menu()
-        pv = tk.StringVar(value=self.cfg.get("profile") or "")
-        self._menu_vars = [pv]
-        for name in PROFILE_NAMES:
-            hint = " (custom)" if name in self.cfg["profiles"] else ""
-            m.add_radiobutton(label=f"{name}{hint}", value=name, variable=pv,
-                              command=lambda name=name: self.apply_profile(name))
-        m.add_separator()
-        for name in PROFILE_NAMES:
-            m.add_command(label=f"Save current volumes as \"{name}\"",
-                          command=lambda name=name: self.save_profile(name))
-        if self.cfg["profiles"]:
-            m.add_command(label="Reset profiles", command=self.reset_profiles)
-        self.popup_at(m, self.header_buttons()["profbtn"])
+        cur = self.cfg.get("profile")
+        items = [{"k": "head", "t": "Profiles"}]
+        hints = {"Game": "Ctrl+Alt+1", "Music": "Ctrl+Alt+2"}
+        for name in self.all_profiles():
+            items.append({"k": "act", "t": name + (" (custom)" if name in PROFILE_NAMES and name in self.cfg["profiles"]
+                                                   else ""),
+                          "icon": "check" if name == cur else "dot", "hint": hints.get(name, ""),
+                          "do": lambda name=name: self.apply_profile(name)})
+        items.append({"k": "sep"})
+        if cur:
+            items.append({"k": "act", "t": f"Save current volumes as \"{cur}\"", "icon": "plus",
+                          "do": lambda: self.save_profile(cur)})
+        items.append({"k": "act", "t": "New profile from current volumes", "icon": "plus", "do": self.new_profile})
+        if cur and cur in self.cfg.get("my_profiles", []):
+            items.append({"k": "act", "t": f"Delete \"{cur}\"", "icon": "trash", "danger": True,
+                          "do": lambda: self.delete_profile(cur)})
+        elif self.cfg["profiles"]:
+            items.append({"k": "act", "t": "Reset Game and Music", "icon": "trash", "do": self.reset_profiles})
+        items += [
+            {"k": "sep"},
+            {"k": "toggle", "t": "Game profile when a game is open", "icon": "keys",
+             "get": lambda: self.cfg.get("auto_profile", False), "set": self.toggle_auto_profile},
+        ]
+        self.open_panel("profbtn", items, 340)
 
     # -- profiles
     def apply_profile(self, name):
@@ -3796,7 +4057,8 @@ class App(tk.Tk):
         self.say(f"Saved \"{name}\"!", 1.6)
 
     def reset_profiles(self):
-        self.cfg["profiles"] = {}
+        for name in PROFILE_NAMES:
+            self.cfg["profiles"].pop(name, None)
         save_config(self.cfg)
         self.say("Profiles have\nbeen reset", 1.6)
 
@@ -3913,6 +4175,10 @@ class App(tk.Tk):
                     self.do_action(action)
             elif kind == "show":
                 self.show_window()
+            elif kind == "update":
+                self.offer_update(ev[1], ev[2], ev[3])
+            elif kind == "say":
+                self.say(ev[1], ev[2])
             elif kind == "quit":
                 self.on_close()
                 return
@@ -3947,6 +4213,8 @@ class App(tk.Tk):
             self.toggle_mic()
         elif kind == "debug":
             self.toggle_debug()
+        elif kind == "toggle_window":
+            self.toggle_window()
         elif kind == "media":
             self.media_action(action[1])
         elif kind == "profile":
@@ -4060,21 +4328,37 @@ class App(tk.Tk):
         dt = min(0.25, now - self.last_tick)
         self.last_tick = now
         silence = now - self.last_sound
+        hour = time.localtime().tm_hour
+        late = hour >= 23 or hour < 5
+        sleep_after = 20 if late else SLEEP_AFTER       # late at night she gets sleepy sooner
+        # Watch mode: a film, series or stream with no steady beat -> she curls up and watches (sleeps)
+        if self.clock.locked:
+            self.last_locked_t = now
+        video = getattr(self.now_playing, "video", False)
+        self.video_since = (self.video_since or now) if video else None
+        watching = (self.cfg.get("watch_mode", True) and video and now - self.video_since > 3
+                    and now - self.last_locked_t > 12)
         if silence < 2.0:
-            state = "dance"
-        elif silence > SLEEP_AFTER and now - self.woken_at > SLEEP_AFTER:
+            state = "watch" if watching else "dance"
+        elif silence > sleep_after and now - self.woken_at > sleep_after:
             state = "sleep"
         else:
             state = "idle"
         if state != self.state_name:
-            if state == "dance" and self.state_name == "sleep":
+            if state == "dance" and self.state_name in ("sleep", "watch"):
                 self.react = ("surprise", now + 0.7)
                 self.say(self.pick_line(LINES_BACK, "back"), 2.2)
                 self.burst("star", 6)
+            elif state == "watch" and now - self.watch_said > 90:
+                self.watch_said = now
+                self.say("Movie time...\nwake me for music!", 2.6)
             self.state_name = state
             self.state_t = now
             self.move = None
         self.dancing = state == "dance"
+        if late and state == "idle" and now - self.late_t > 900 and silence > 8:
+            self.late_t = now
+            self.say("*yawn*\nIt's getting late...", 2.6)
 
         # how intense is the music? (bass counts most) -> calm / normal / hype
         b = self.band_vals
@@ -4086,7 +4370,9 @@ class App(tk.Tk):
             self.mode = "calm"
         elif self.mode == "hype" and self.energy < 0.56 or self.mode == "calm" and self.energy > 0.34:
             self.mode = "dance"
-        self.clock.update(now, self.analyzer, self.dancing, self.free_beat())
+        self.clock.update(now, self.analyzer, silence < 2.0, self.free_beat())
+        self.check_drop(now, e)
+        self.seasonal(now, state)
 
         # blinking: a short, natural blink every few seconds (sometimes twice)
         if now >= self.next_blink:
@@ -4097,7 +4383,7 @@ class App(tk.Tk):
         react = self.react if self.react and self.react[1] > now else None
         self.react = react
         if react:
-            frames = self.wave_sprites if react[0] == "wave" else self.surprise_sprites
+            frames = {"wave": self.wave_sprites, "ears": self.ears_sprites}.get(react[0], self.surprise_sprites)
             img = frames[int(now / 0.18) % len(frames)]
         elif state == "dance":
             pool = MOVE_POOLS[self.mode]
@@ -4119,9 +4405,9 @@ class App(tk.Tk):
             frames = sets["closed" if blinking else self.move_eyes]
             self.dance_i = (k - self.move_k0) % len(frames)
             img = frames[self.dance_i]
-        elif state == "sleep":
+        elif state in ("sleep", "watch"):
             img = self.sleep_sprites[int((now - self.state_t) * 1000 / SLEEP_MS) % len(self.sleep_sprites)]
-            if now - self.last_z_t > 1.5:
+            if now - self.last_z_t > (1.5 if state == "sleep" else 2.6):
                 self.last_z_t = now
                 x0, y0, x1, _ = self.girl_box()
                 self.spawn("z", (205, 220, 255), x0 + self.p(18), y0 + self.p(10) + SPRITE_TOP * self.sc,
@@ -4145,12 +4431,13 @@ class App(tk.Tk):
         return imgs
 
     def spawn(self, pattern, color, x, y, vx=0.0, vy=-30.0, life=1.4):
+        keep = pattern in ("bat", "flake")      # these keep their speed
         if len(self.fx) > 40:
             return
         imgs = self.fx_images(pattern, color)
         item = self.canvas.create_image(x, y, anchor="center", image=imgs[0], tags="fx")
         self.fx.append({"item": item, "imgs": imgs, "x": x, "y": y, "vx": vx, "vy": vy,
-                        "t": 0.0, "life": life, "i": 0, "ph": random.random() * 6.3})
+                        "t": 0.0, "life": life, "i": 0, "ph": random.random() * 6.3, "keep": keep})
         if len(self.fx) == 1:
             self.after(33, self.anim)
 
@@ -4199,7 +4486,8 @@ class App(tk.Tk):
                 continue
             f["x"] += (f["vx"] + math.sin(f["t"] * 5 + f["ph"]) * self.p(10)) * dt
             f["y"] += f["vy"] * dt
-            f["vx"] *= 0.97
+            if not f.get("keep"):
+                f["vx"] *= 0.97
             i = min(3, int((f["t"] / f["life"]) ** 1.6 * 4))
             if i != f["i"]:
                 f["i"] = i
@@ -4247,7 +4535,7 @@ class App(tk.Tk):
             self.canvas.coords(self.sprite_item, self.sprite_x, y)
         bob = self.p(2) if (int(time.time() * 2.5) % 2) and self.bubble_text else 0
         self.canvas.coords(self.bubble_item, self.sprite_x - self.p(2), self.bubble_y - bob)
-        self.after(33, self.bounce)
+        self.after(50 if self.cfg.get("low_power") else 33, self.bounce)
 
     def poke_girl(self):
         now = time.time()
@@ -4353,7 +4641,7 @@ class App(tk.Tk):
             self.render()
             if r["key"] == "__master__" and v >= 95 and time.time() - self.loud_t > 8 and self.dancing:
                 self.loud_t = time.time()
-                self.react = ("surprise", time.time() + 0.8)
+                self.react = ("ears", time.time() + 1.8)
                 self.say(LOUD_TEXT, 2.0)
 
     def toggle_mute(self, i):
@@ -4365,6 +4653,203 @@ class App(tk.Tk):
         if r["key"] == "__master__" and r["muted"]:
             self.react = ("surprise", time.time() + 0.8)
             self.say(MUTE_TEXT, 2.5)
+
+    # -- show / hide with a hotkey
+    def toggle_window(self):
+        try:
+            hidden = self.state() in ("iconic", "withdrawn")
+        except Exception:
+            hidden = False
+        if hidden:
+            self.show_window()
+            self.attributes("-topmost", True)             # on top of the game for a moment
+            self.after(4000, lambda: self.attributes("-topmost", self.cfg["topmost"]))
+        else:
+            self.withdraw() if (self.tray and self.tray.icon) else self.iconify()
+
+    # -- updates
+    def check_updates(self, manual=False):
+        if not manual and not self.cfg.get("update_check", True):
+            return
+
+        def work():
+            try:
+                tag, page = latest_release()
+                self.events.put(("update", tag, page, manual))
+            except Exception as e:
+                if manual:
+                    self.events.put(("say", "Couldn't reach\nGitHub right now", 2.2))
+                log_error(f"Update check: {e}")
+        threading.Thread(target=work, daemon=True).start()
+        if not manual:
+            self.after(24 * 3600 * 1000, self.check_updates)
+
+    def offer_update(self, tag, page, manual):
+        newer = version_tuple(tag) > version_tuple(APP_VERSION)
+        if not newer:
+            if manual:
+                self.say(f"You have the newest\nMixie ({APP_VERSION})! \u266a", 2.2)
+            return
+        if not manual and self.cfg.get("skip_version") == tag:
+            return
+        ans = self.dialog(f"Mixie {tag.lstrip('v')} is out",
+                          f"You have {APP_VERSION}. The new version is on GitHub - download "
+                          f"{'Mixie.exe' if FROZEN else 'Install Mixie.bat'} there and run it. "
+                          "Your settings are kept.",
+                          ("Open the download page", "Later", "Skip this version"), width=440)
+        if ans == "Open the download page":
+            import webbrowser
+            webbrowser.open(page)
+        elif ans == "Skip this version":
+            self.cfg["skip_version"] = tag
+            save_config(self.cfg)
+
+    # -- start with Windows
+    def toggle_autostart(self):
+        try:
+            autostart_set(not autostart_get())
+        except Exception as e:
+            self.dialog("Start with Windows", f"Could not change it:\n{e}")
+
+    def fix_autostart(self):
+        """If Mixie starts with Windows but was moved (or switched to Mixie.exe), point it here."""
+        try:
+            cur = autostart_get()
+            if cur and cur != autostart_command():
+                autostart_set(True)
+        except Exception:
+            pass
+
+    # -- your birthday
+    def set_birthday(self):
+        v = self.ask_text("Your birthday", "Mixie wears a party hat and throws confetti on your birthday. "
+                          "Type it as day and month, e.g. 24/12. Leave it empty to remove it.",
+                          self.birthday_hint() if self.cfg.get("birthday") else "")
+        if v is None:
+            return
+        if not v:
+            self.cfg["birthday"] = None
+        else:
+            m = re.match(r"^\s*(\d{1,2})\s*[/.\- ]\s*(\d{1,2})\s*$", v)
+            if not m or not (1 <= int(m.group(2)) <= 12 and 1 <= int(m.group(1)) <= 31):
+                self.dialog("Your birthday", "Please write it as day/month, for example 24/12.")
+                return
+            self.cfg["birthday"] = f"{int(m.group(2)):02d}-{int(m.group(1)):02d}"
+        save_config(self.cfg)
+        self.build_sprites()
+        self.render()
+        if self.is_birthday():
+            self.party_t = 0.0
+        self.say("Noted! \u266a" if self.cfg["birthday"] else "Okay, forgotten!", 1.6)
+
+    def birthday_hint(self):
+        b = self.cfg.get("birthday")
+        return time.strftime("%d/%m", time.strptime("2000-" + b, "%Y-%m-%d")) if b else "\u203a"
+
+    # -- profiles that switch by themselves
+    def auto_profile_tick(self):
+        if not self.cfg.get("auto_profile"):
+            return
+        now = time.time()
+        fg = foreground_app()
+        games = {r["key"] for r in self.rows if category(r["key"]) == "game"
+                 and r["key"] not in ("__system__",)}
+        if fg and fg in games:
+            self.last_game_t = now
+            if self.cfg.get("profile") != "Game":
+                self.auto_from = self.cfg.get("profile") or "Music"
+                self.apply_profile("Game")
+        elif self.auto_from and self.cfg.get("profile") == "Game" and now - self.last_game_t > 45 \
+                and not (games & {fg}):
+            back, self.auto_from = self.auto_from, None
+            if back in self.all_profiles():
+                self.apply_profile(back)
+
+    def all_profiles(self):
+        return PROFILE_NAMES + [n for n in self.cfg.get("my_profiles", []) if n not in PROFILE_NAMES]
+
+    def new_profile(self):
+        name = self.ask_text("New profile", "Saves the volumes you have right now under a name of your own.",
+                             "", ok="Save")
+        if not name:
+            return
+        name = name[:24]
+        if name not in self.all_profiles():
+            self.cfg["my_profiles"].append(name)
+        self.save_profile(name)
+
+    def delete_profile(self, name):
+        if self.dialog("Delete profile", f"Delete \"{name}\"?", ("Delete", "Cancel")) != "Delete":
+            return
+        self.cfg["my_profiles"] = [n for n in self.cfg["my_profiles"] if n != name]
+        self.cfg["profiles"].pop(name, None)
+        if self.cfg.get("profile") == name:
+            self.cfg["profile"] = None
+        save_config(self.cfg)
+        self.render()
+
+    def toggle_auto_profile(self):
+        self.cfg["auto_profile"] = not self.cfg.get("auto_profile")
+        self.auto_from = None
+        save_config(self.cfg)
+
+    # -- one app on another device
+    def set_row_device(self, key, dev_id, dev_name):
+        r = next((r for r in self.rows if r["key"] == key), None)
+        pids = sorted((r or {}).get("pids") or [])
+        if not pids:
+            self.say("Start the sound\nin that app first", 2.0)
+            return
+
+        def work():
+            ok = set_app_device(pids, dev_id)
+            if ok:
+                if dev_id:
+                    self.cfg["app_devices"][key] = dev_id
+                else:
+                    self.cfg["app_devices"].pop(key, None)
+                save_config(self.cfg)
+            msg = (f"{pretty_name(key)} now plays on\n{short_device(dev_name, 20)}" if ok else
+                   "Windows didn't let me\nmove that app")
+            self.events.put(("say", msg, 2.4))
+        threading.Thread(target=work, daemon=True).start()
+
+    # -- reactions
+    def check_drop(self, now, e):
+        """The drop: quiet build-up, then the bass comes in hard -> she goes wild."""
+        h = self.energy_hist
+        h.append((now, e))
+        while h and now - h[0][0] > 5.0:
+            h.pop(0)
+        if not self.dancing or now - self.drop_t < 25 or len(h) < 20:
+            return
+        before = [v for t, v in h if now - 4.5 < t < now - 1.0]
+        if before and e > 0.8 and max(before) < 0.42 and sum(before) / len(before) < 0.3:
+            self.drop_t = now
+            self.hop_t = now
+            self.move = None                  # pick a wild move right away
+            self.say("DROP! \u266a", 1.6)
+            self.burst("star", 9)
+            self.dlog("event: drop")
+
+    def seasonal(self, now, state):
+        """Snow in December, bats at Halloween, confetti on your birthday."""
+        if self.cfg.get("low_power") or now - self.season_t < 0.3:
+            return
+        self.season_t = now
+        month = time.localtime().tm_mon
+        if month == 12 and random.random() < 0.55:
+            self.spawn("flake", (235, 242, 255), random.uniform(0, self.W), -self.p(4),
+                       vx=self.p(random.uniform(-6, 6)), vy=self.p(random.uniform(14, 24)), life=7.0)
+        elif month == 10 and random.random() < 0.025:
+            left = random.random() < 0.5
+            self.spawn("bat", (40, 30, 60) if random.random() < 0.5 else (120, 70, 170),
+                       -self.p(10) if left else self.W + self.p(10), self.p(random.uniform(20, 90)),
+                       vx=self.p(70) * (1 if left else -1), vy=-self.p(4), life=6.0)
+        if self.is_birthday() and state == "dance" and now - self.party_t > 45:
+            self.party_t = now
+            self.burst("confetti", 12, [(255, 120, 190), (90, 200, 255), (255, 216, 74), (130, 230, 120)])
+            self.say("Happy birthday! \u266a", 2.0)
 
     # -- debug mode: numbers on screen and a log file, to find out what goes wrong
     def toggle_debug(self):
@@ -4469,6 +4954,14 @@ class App(tk.Tk):
         self.on_close()
         os._exit(1 if failed else 0)
 
+    def toggle_low_power(self):
+        self.cfg["low_power"] = not self.cfg.get("low_power", False)
+        save_config(self.cfg)
+
+    def toggle_watch(self):
+        self.cfg["watch_mode"] = not self.cfg.get("watch_mode", True)
+        save_config(self.cfg)
+
     def toggle_mic_row(self):
         self.cfg["mic_row"] = not self.cfg.get("mic_row", True)
         save_config(self.cfg)
@@ -4566,7 +5059,15 @@ class App(tk.Tk):
                 self.sync_row(r, force=True)
             elif k not in ("__master__", "__mic__"):
                 r["ctl"].volumes = groups[k]["vols"]
+            if k in groups:
+                r["pids"] = groups[k].get("pids", set())
             rows.append(r)
+        new_games = [k for k in keys if category(k) == "game" and k not in self.seen_games
+                     and k not in ("__master__", "__mic__", "__system__")]
+        if new_games and self.seen_games is not None and self.rows:
+            if time.time() - self.started_t > 8:
+                self.say("Good luck,\nhave fun! \u266a", 2.0)
+        self.seen_games.update(new_games)
         self.rows = rows
 
         changed = keys != self.order
@@ -4579,6 +5080,7 @@ class App(tk.Tk):
 
         for r in self.rows:
             self.sync_row(r)
+        self.auto_profile_tick()
         sig = tuple((r["key"], r["vol"], r["muted"]) for r in self.rows)
         if changed or sig != self.last_sig:
             self.last_sig = sig
@@ -4590,6 +5092,22 @@ class App(tk.Tk):
         if key:
             self.menu.add_command(label=f"Hide {pretty_name(key)}",
                                   command=lambda: self.hide(key))
+            if category(key) not in ("master", "mic", "system") and sys.platform == "win32":
+                try:
+                    devs = output_devices()
+                except Exception:
+                    devs = []
+                if len(devs) > 1:
+                    sub = self.new_menu()
+                    cur = self.cfg["app_devices"].get(key, "")
+                    self._row_dev = tk.StringVar(value=cur)
+                    sub.add_radiobutton(label="Same as Windows (default)", value="", variable=self._row_dev,
+                                        command=lambda: self.set_row_device(key, "", "the default device"))
+                    sub.add_separator()
+                    for did, name, _ in devs:
+                        sub.add_radiobutton(label=name, value=did, variable=self._row_dev,
+                                            command=lambda did=did, name=name: self.set_row_device(key, did, name))
+                    self.menu.add_cascade(label=f"Play {pretty_name(key)} on", menu=sub)
         n = len(self.cfg["hidden"])
         if n:
             self.menu.add_command(label=f"Show hidden programs ({n})", command=self.unhide_all)
@@ -4670,6 +5188,18 @@ class App(tk.Tk):
         if self.tray:
             self.tray.stop()
         self.destroy()
+
+
+if "--set-app-device" in sys.argv:          # helper process (see set_app_device), no window
+    _i = sys.argv.index("--set-app-device")
+    _pids = [int(x) for x in sys.argv[_i + 1].split(",") if x]
+    _dev = "" if sys.argv[_i + 2] == "-" else sys.argv[_i + 2]
+    try:
+        _code = _set_app_device_here(_pids, _dev)
+    except Exception as _e:
+        log_error(f"Per-app device helper: {_e}")
+        _code = 5
+    os._exit(_code)
 
 
 if __name__ == "__main__":

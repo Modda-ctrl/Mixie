@@ -10,7 +10,7 @@
   tempo really does.
 - Eight new dance moves: twist, cheer, kick, moonwalk, bop, pump, wave arms and squat (17 in total).
 - While waiting she now also looks around and stretches.
-- Six new outfits: crown, bunny ears, flower crown, beanie, cap and devil horns – with new seasonal picks.
+- Seven new outfits: crown, bunny ears, flower crown, beanie, cap, devil horns and a party hat – with new seasonal picks.
 - New settings panel with switches, and a new outfit picker with Mixie in every outfit.
 - A bigger Mixie in the app and desktop icon.
 - Pop-ups (settings, outfits, messages, About, hotkeys) open on the same screen as Mixie instead of always on
@@ -19,6 +19,18 @@
 - **Mixie.exe**: a single file that runs without Python, built and tested automatically on GitHub.
 - Microphone row: volume and mute for your default microphone, plus <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>N</kbd>
   to mute it from inside a game. Can be hidden in the settings.
+- **Watch mode**: when a film, series or stream plays (YouTube, Twitch, Netflix, Disney+ and more) and there's
+  no steady beat, Mixie curls up and naps instead of dancing. Music videos still get a dance.
+- **Updates**: Mixie checks GitHub once a day and tells you when a new version is out.
+- **Start with Windows** switch.
+- **Play an app on another device** (right-click a card): e.g. the game in your headphones, Spotify on the speakers.
+- **Your own profiles** with names, and *Game profile when a game is open* switches profiles by itself.
+- <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>H</kbd> shows or hides Mixie (on top of the game for a moment).
+- Mixie reacts more: she goes wild on the **drop**, covers her ears when it's too loud, says good luck when a game
+  starts and gets sleepy late at night.
+- **Seasons**: snow in December, bats in October – and a party hat and confetti on **your birthday**.
+- **Low power mode** for slower PCs.
+- A settings panel that is too long splits into two columns, so it fits on any screen.
 - Debug mode (settings or <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>D</kbd>): shows tempo, beat, dance and frame-rate
   numbers and writes `debug_log.txt`, to make problems easy to report.
 

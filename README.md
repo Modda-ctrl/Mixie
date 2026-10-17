@@ -41,7 +41,10 @@ And while you play, **Mixie** – the pixel buddy in the corner – dances to yo
 - **Profiles.** *Game* turns the music down and the game up, *Music* does the opposite – or save your own.
 - **Switch audio device** between headphones, speakers and monitors in two clicks.
 - **Your microphone too.** Its own slider and mute button – and a hotkey to mute it mid-game.
-- **Compact mode**, **always on top**, **minimize to the tray** – and it remembers where you put it.
+- **Play an app on another device** – right-click a card: the game in your headphones, Spotify on the speakers.
+- **Your own profiles**, and an automatic switch to the *Game* profile while a game is open.
+- **Compact mode**, **always on top**, **minimize to the tray**, **start with Windows** – and it remembers where
+  you put it. Mixie tells you when there's a new version.
 
 <p align="center">
   <img src="docs/dance.gif" alt="Mixie dancing in time with a 125 BPM song, with the beat lights" width="100%">
@@ -54,6 +57,8 @@ And while you play, **Mixie** – the pixel buddy in the corner – dances to yo
   She keeps the beat through breaks without drums, so she never stops mid-song.
 - **She has a life of her own.** She blinks, looks around and stretches while she waits for music, falls
   asleep after a while, waves when you hover over her and has something to say when you click her.
+- **Watch mode.** Put on a film, a series or a Twitch stream and she curls up for a nap – a music video still
+  gets a dance. She goes wild on the drop, covers her ears when it's too loud and gets sleepy late at night.
 - **Neon sound waves** in an early-2010s style follow the bass, mids and treble, and change colour
   with every new song.
 
@@ -62,12 +67,13 @@ And while you play, **Mixie** – the pixel buddy in the corner – dances to yo
 </p>
 
 <p align="center">
-  <img src="docs/outfits-showcase.png" alt="Twelve outfits, from a bow and headphones to a crown, bunny ears and a witch hat" width="100%">
+  <img src="docs/outfits-showcase.png" alt="Thirteen outfits, from a bow and headphones to a crown, bunny ears and a party hat" width="100%">
 </p>
 
-- **Twelve outfits.** Bow, headphones, cat ears, bunny ears, crown, flower crown, beanie, cap, sunglasses,
-  devil horns, witch hat and santa hat – or *Automatic*, which picks one by season. Her dress follows the colour
-  of the waves.
+- **Thirteen outfits.** Bow, headphones, cat ears, bunny ears, crown, flower crown, beanie, cap, sunglasses,
+  devil horns, witch hat, santa hat and a party hat – or *Automatic*, which picks one by season. Snow falls in
+  December, bats fly in October, and on your birthday (set it in the menu) she throws confetti. Her dress follows
+  the colour of the waves.
 
 <p align="center">
   <img src="docs/gaming.png" alt="Hotkeys that work in-game, and the music stepping aside when someone talks on Discord" width="100%">
@@ -120,6 +126,7 @@ They work everywhere – including inside full-screen games. Switch them off in 
 | <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>←</kbd> / <kbd>→</kbd> | Previous / next track |
 | <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>1</kbd> / <kbd>2</kbd> | Game profile / Music profile |
 | <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>N</kbd> | Mute / unmute your microphone |
+| <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>H</kbd> | Show / hide Mixie |
 | <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>D</kbd> | Debug mode on / off |
 
 ## 💡 Tips
@@ -142,6 +149,8 @@ They work everywhere – including inside full-screen games. Switch them off in 
 | Now playing | The window titles of Spotify and your browser – no logins, permissions or APIs |
 | Media buttons | Standard Windows media keys |
 | Lowering the music | The live level of the voice-chat app's audio session |
+| Watch mode | Video sites and players in the window titles, plus no steady beat in the sound |
+| One app on another device | Windows' per-app device setting (the one EarTrumpet uses), in a separate helper process |
 | Tray icon | [pystray](https://github.com/moses-palmer/pystray) |
 | Interface | Tkinter, with everything drawn by [Pillow](https://python-pillow.org/) at 3× and scaled down for smooth edges |
 
@@ -156,6 +165,7 @@ Only prebuilt packages are installed (`--only-binary`), so nothing is compiled o
 - **A hotkey does nothing.** Another program may already use it – **⋯ → Show hotkeys…** lists the taken ones.
 - **Something looks off (timing, freezes, lag).** Turn on **⋯ → Debug mode** (or <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>D</kbd>).
   Mixie shows what she measures and writes `debug_log.txt` – **⋯ → Open Mixie's folder** – attach it to an issue.
+- **Mixie uses too much of a slow PC.** Turn on **⋯ → Low power mode** (half the frame rate, no snow).
 - **A game shows a letter instead of its icon.** Some games with anti-cheat don't let other programs read
   their icon.
 
