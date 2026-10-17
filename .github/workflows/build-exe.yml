@@ -1,0 +1,51 @@
+name: Build Mixie.exe
+
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  exe:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install packages
+        run: python -m pip install -r requirements.txt pyinstaller
+
+      - name: Make the icon
+        run: python packaging/make_icon.py
+
+      - name: Build Mixie.exe
+        run: python -m PyInstaller --noconfirm --clean packaging/mixie.spec
+
+      - name: Self-test (starts Mixie.exe, checks every package inside it, closes it)
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath dist\Mixie.exe -ArgumentList "--selftest" -PassThru
+          if (-not $p.WaitForExit(120000)) { $p.Kill(); throw "Mixie.exe did not finish the self-test" }
+          Get-Content "$env:LOCALAPPDATA\Mixie\selftest.txt"
+          if ($p.ExitCode -ne 0) {
+            Get-Content "$env:LOCALAPPDATA\Mixie\crash_log.txt" -ErrorAction SilentlyContinue
+            throw "Self-test failed (exit code $($p.ExitCode))"
+          }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Mixie-exe
+          path: dist/Mixie.exe
+
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/Mixie.exe

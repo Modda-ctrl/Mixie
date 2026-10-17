@@ -40,6 +40,7 @@ And while you play, **Mixie** – the pixel buddy in the corner – dances to yo
 - **Now playing.** Song, artist and tempo from Spotify or YouTube, with previous, play/pause and next.
 - **Profiles.** *Game* turns the music down and the game up, *Music* does the opposite – or save your own.
 - **Switch audio device** between headphones, speakers and monitors in two clicks.
+- **Your microphone too.** Its own slider and mute button – and a hotkey to mute it mid-game.
 - **Compact mode**, **always on top**, **minimize to the tray** – and it remembers where you put it.
 
 <p align="center">
@@ -78,19 +79,20 @@ And while you play, **Mixie** – the pixel buddy in the corner – dances to yo
 
 ## 📥 Install
 
-You need **Windows 10 or 11** and **Python 3.10 or newer** from
-[python.org](https://www.python.org/downloads/) – tick *Add python.exe to PATH* during the install.
+**The easy way – no Python needed (Windows 10 or 11):**
 
-1. Download **`Install Mixie.bat`** from the [latest release](../../releases/latest).
-2. Double-click it. It installs Mixie into `%LOCALAPPDATA%\Mixie`, sets up the Python packages it needs
-   and starts it.
-3. The first start puts a **Mixie** shortcut on your desktop and in the Start menu.
-
-Running the installer again updates Mixie and keeps your settings.
+1. Download **`Mixie.exe`** from the [latest release](../../releases/latest).
+2. Double-click it. The first start puts a **Mixie** shortcut on your desktop and in the Start menu.
 
 > [!NOTE]
-> Windows SmartScreen may warn about a downloaded `.bat` file. It is plain text – open it in Notepad to see
-> exactly what it does before you run it.
+> Mixie.exe is not signed, so Windows SmartScreen may say *Windows protected your PC*.
+> Click **More info → Run anyway**. The exe is built from this repository by a
+> [GitHub workflow](.github/workflows/build-exe.yml) you can read.
+
+**With Python instead:** install **Python 3.10 or newer** from [python.org](https://www.python.org/downloads/)
+(tick *Add python.exe to PATH*), download **`Install Mixie.bat`** from the release and double-click it.
+It installs Mixie into `%LOCALAPPDATA%\Mixie`, sets up the packages and starts it. Running it again updates
+Mixie and keeps your settings. Both ways share the same settings.
 
 <details>
 <summary><b>Run from source instead</b></summary>
@@ -117,6 +119,8 @@ They work everywhere – including inside full-screen games. Switch them off in 
 | <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>Space</kbd> | Play / pause |
 | <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>←</kbd> / <kbd>→</kbd> | Previous / next track |
 | <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>1</kbd> / <kbd>2</kbd> | Game profile / Music profile |
+| <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>N</kbd> | Mute / unmute your microphone |
+| <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>D</kbd> | Debug mode on / off |
 
 ## 💡 Tips
 
@@ -150,17 +154,17 @@ Only prebuilt packages are installed (`--only-binary`), so nothing is compiled o
   After an unexpected close, Mixie starts in a safe mode (without audio capture and song detection).
   Please [open an issue](../../issues/new/choose) and paste the log.
 - **A hotkey does nothing.** Another program may already use it – **⋯ → Show hotkeys…** lists the taken ones.
+- **Something looks off (timing, freezes, lag).** Turn on **⋯ → Debug mode** (or <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>D</kbd>).
+  Mixie shows what she measures and writes `debug_log.txt` – **⋯ → Open Mixie's folder** – attach it to an issue.
 - **A game shows a letter instead of its icon.** Some games with anti-cheat don't let other programs read
   their icon.
 
-## 🛠️ Building the installer
+## 🛠️ Building
 
-`Install Mixie.bat` is a single file that contains both the installer and `mixie.py`. After changing
-`mixie.py`, rebuild it with:
-
-```bat
-py installer\build_installer.py
-```
+- **Mixie.exe:** `packaging\build_exe.bat` (PyInstaller). GitHub builds and self-tests it on every pull request,
+  and attaches it to the release when a `v*` tag is pushed.
+- **Install Mixie.bat:** a single file that contains both the installer and `mixie.py`. Rebuild it with
+  `py installer\build_installer.py`.
 
 ## ❤️ Credits
 

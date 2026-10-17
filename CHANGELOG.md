@@ -16,6 +16,11 @@
 - Pop-ups (settings, outfits, messages, About, hotkeys) open on the same screen as Mixie instead of always on
   the main screen, and messages are drawn in Mixie's own style.
 - Changing outfit or song colour no longer causes a short stutter.
+- **Mixie.exe**: a single file that runs without Python, built and tested automatically on GitHub.
+- Microphone row: volume and mute for your default microphone, plus <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>N</kbd>
+  to mute it from inside a game. Can be hidden in the settings.
+- Debug mode (settings or <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>D</kbd>): shows tempo, beat, dance and frame-rate
+  numbers and writes `debug_log.txt`, to make problems easy to report.
 
 ## 1.2.3
 - Links point to the right repository (`Modda-ctrl/Mixie`).

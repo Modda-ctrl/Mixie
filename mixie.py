@@ -43,7 +43,18 @@ REPO_URL = "https://github.com/Modda-ctrl/Mixie"
 import faulthandler  # noqa: E402
 import traceback  # noqa: E402
 
-_HERE0 = os.path.dirname(os.path.abspath(__file__))
+# Mixie.exe (built with PyInstaller) keeps its settings and logs in %LOCALAPPDATA%\Mixie -
+# the same folder the installer uses. Run as a script, everything lives next to mixie.py.
+FROZEN = bool(getattr(sys, "frozen", False))
+SELFTEST = "--selftest" in sys.argv
+if FROZEN:
+    _HERE0 = os.path.join(os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"), APP_NAME)
+    try:
+        os.makedirs(_HERE0, exist_ok=True)
+    except Exception:
+        pass
+else:
+    _HERE0 = os.path.dirname(os.path.abspath(__file__))
 CRASH_LOG = os.path.join(_HERE0, "crash_log.txt")
 PREV_CRASH_LOG = os.path.join(_HERE0, "crash_log_previous.txt")
 _RUN_MARK = os.path.join(_HERE0, ".running")
@@ -130,7 +141,7 @@ REQUIRED = {"pycaw": "pycaw", "PIL": "pillow"}           # required
 # Extras: the waves that follow the bass, and the tray icon. The program works without them.
 EXTRAS = {"soundcard": ["soundcard"], "numpy": ["numpy"], "pystray": ["pystray"]}
 EXTRAS_VERSION = "4"
-_EXTRAS_MARK = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".extras_installed")
+_EXTRAS_MARK = os.path.join(_HERE0, ".extras_installed")
 PIP_TIMEOUT = 240
 
 
@@ -279,7 +290,7 @@ def install_with_window(groups):
 
 _need = [[p] for p in _missing()]
 _need_extras = _missing_extras()
-if _need or _need_extras:
+if not FROZEN and (_need or _need_extras):     # (Mixie.exe has everything built in)
     _log = ""
     try:
         _log = install_with_window(_need + _need_extras)
@@ -314,8 +325,9 @@ from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont, ImageOps, 
 _RS = getattr(Image, "Resampling", Image)
 LANCZOS, NEAREST, BILINEAR = _RS.LANCZOS, _RS.NEAREST, _RS.BILINEAR
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-SCRIPT = os.path.abspath(__file__)
+HERE = _HERE0
+DEBUG_LOG = os.path.join(_HERE0, "debug_log.txt")
+SCRIPT = sys.executable if FROZEN else os.path.abspath(__file__)
 CONFIG_PATH = os.path.join(HERE, "mixie_config.json")
 ICON_PATH = os.path.join(HERE, "mixie.ico")
 ICON_VERSION = 4
@@ -327,6 +339,7 @@ SS = 3  # supersampling: shapes are drawn 3x larger and scaled down = smooth edg
 PRIORITY = ["spotify.exe", "firefox.exe"]
 PRETTY = {
     "__master__": "Master volume",
+    "__mic__": "Microphone",
     "__system__": "System sounds",
     "spotify.exe": "Spotify",
     "firefox.exe": "Firefox",
@@ -373,6 +386,7 @@ BAND_EDGES = [(25, 160), (160, 600), (600, 3500), (3500, 14000)]
 
 APP_COLORS = {
     "__master__": (0, 112, 209),
+    "__mic__": (214, 60, 120),
     "__system__": (88, 94, 112),
     "spotify.exe": (29, 185, 84),
     "firefox.exe": (255, 113, 57),
@@ -422,6 +436,8 @@ VOICE_APPS = {"discord.exe", "discordptb.exe", "discordcanary.exe", "teamspeak.e
 def category(key):
     if key == "__master__":
         return "master"
+    if key == "__mic__":
+        return "mic"
     if key == "__system__":
         return "system"
     if key in MUSIC_APPS:
@@ -449,6 +465,8 @@ HOTKEYS = [
     (8, CA, 0x25, ("media", "prev"), "Ctrl + Alt + Left", "Previous track"),
     (9, CA, 0x31, ("profile", "Game"), "Ctrl + Alt + 1", "Game profile"),
     (10, CA, 0x32, ("profile", "Music"), "Ctrl + Alt + 2", "Music profile"),
+    (11, CA, 0x4E, ("mute_mic",), "Ctrl + Alt + N", "Mute / unmute your microphone"),
+    (12, CA, 0x44, ("debug",), "Ctrl + Alt + D", "Debug mode on / off"),
 ]
 MEDIA_VK = {"play": 0xB3, "next": 0xB0, "prev": 0xB1}
 
@@ -734,7 +752,7 @@ def create_shortcuts(icon_path, in_process=True):
     otherwise be cleaned up later on the wrong thread and crash the program.
     Returns (path to the desktop shortcut or None, error messages)."""
     links = shortcut_targets()
-    target, args = window_python(), f'"{SCRIPT}"'
+    target, args = (SCRIPT, "") if FROZEN else (window_python(), f'"{SCRIPT}"')
     icon = f"{icon_path},0" if icon_path else f"{target},0"
     errors = []
     ways = [("vbscript", _lnk_vbscript), ("powershell", _lnk_powershell)]
@@ -1514,6 +1532,24 @@ def find_master():
             from comtypes import CLSCTX_ALL
             from pycaw.pycaw import IAudioEndpointVolume
             iface = dev.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+            ep = iface.QueryInterface(IAudioEndpointVolume)
+        return MasterControl(ep)
+    except Exception:
+        return None
+
+
+def find_mic():
+    """Volume and mute of the default microphone (None if there is none)."""
+    try:
+        dev = AudioUtilities.GetMicrophone()
+        if dev is None:
+            return None
+        ep = getattr(dev, "EndpointVolume", None)
+        if ep is None:
+            from comtypes import CLSCTX_ALL
+            from pycaw.pycaw import IAudioEndpointVolume
+            raw = getattr(dev, "_dev", dev)
+            iface = raw.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
             ep = iface.QueryInterface(IAudioEndpointVolume)
         return MasterControl(ep)
     except Exception:
@@ -2359,6 +2395,18 @@ def draw_panel_icon(d, cx, cy, s, kind, color, w):
     elif kind == "power":
         d.arc((cx - h, cy - h * 0.9, cx + h, cy + h * 1.1), -60, 240, fill=color, width=w)
         d.line((cx, cy - h, cx, cy + h * 0.05), fill=color, width=w)
+    elif kind == "bug":      # debug mode
+        d.ellipse((cx - h * 0.5, cy - h * 0.55, cx + h * 0.5, cy + h * 0.85), outline=color, width=w)
+        d.line((cx, cy - h * 0.2, cx, cy + h * 0.85), fill=color, width=w)
+        for dy in (-0.05, 0.4):
+            d.line((cx - h * 0.95, cy + dy * h, cx - h * 0.5, cy + dy * h), fill=color, width=w)
+            d.line((cx + h * 0.5, cy + dy * h, cx + h * 0.95, cy + dy * h), fill=color, width=w)
+        d.line((cx - h * 0.3, cy - h * 0.5, cx - h * 0.55, cy - h), fill=color, width=w)
+        d.line((cx + h * 0.3, cy - h * 0.5, cx + h * 0.55, cy - h), fill=color, width=w)
+    elif kind == "folder":
+        d.rounded_rectangle((cx - h, cy - h * 0.55, cx + h, cy + h * 0.75), radius=h * 0.15, outline=color, width=w)
+        d.line((cx - h, cy - h * 0.55, cx - h, cy - h * 0.8, cx - h * 0.2, cy - h * 0.8, cx, cy - h * 0.55),
+               fill=color, width=w)
     elif kind == "star":     # "by season"
         pts = []
         for i in range(10):
@@ -2775,6 +2823,11 @@ class App(tk.Tk):
         self.cfg.setdefault("hotkeys", True)
         self.cfg.setdefault("outfit", "auto")
         self.cfg.setdefault("dress_follow", True)
+        self.cfg.setdefault("debug", False)
+        self.cfg.setdefault("mic_row", True)
+        self.wave_stats = [0, 0.0]     # frames drawn, seconds spent (debug mode)
+        self.dbg_items = None
+        self.dbg_last = {}
         self.cfg.setdefault("profiles", {})
         self.cfg.setdefault("profile", None)
         duck = self.cfg.setdefault("duck", {})
@@ -2885,6 +2938,7 @@ class App(tk.Tk):
         self._gap = False
         self.last_wave_t = time.perf_counter()
         self.master_ctl = find_master()
+        self.mic_ctl = None if SAFE_MODE else find_mic()
         self.meter = find_meter()
         self.menu_icons = {}
         self.events = queue.Queue()
@@ -2922,9 +2976,13 @@ class App(tk.Tk):
         self.refresh()
         self.bounce()
         self.waves()
-        self.after(800, self.first_run)
+        if not SELFTEST:
+            self.after(800, self.first_run)
         self.after(100, self.duck_tick)
         self.after(600, self.start_tray)
+        self.after(500, self.debug_tick)
+        if SELFTEST:
+            self.after(4000, self.selftest_done)
 
     # -- first start: desktop shortcut
     def first_run(self):
@@ -3091,7 +3149,7 @@ class App(tk.Tk):
 
     def header_tile(self):
         p, W, L = self.p, self.W, self.L
-        n = len(self.rows) - (1 if self.rows and self.rows[0]["key"] == "__master__" else 0)
+        n = sum(1 for r in self.rows if r["key"] not in ("__master__", "__mic__"))
         prof = self.cfg.get("profile")
         hov = self.hover if self.hover and self.hover[0] in ("outfitbtn", "devbtn", "profbtn", "menubtn") else None
         dev = short_device(self.device_name, 18 if L["compact"] else 26)
@@ -3244,7 +3302,10 @@ class App(tk.Tk):
             tx, ty = p(PAD + L["icon_x"]), M + (RH - ts) // 2
             tile_col = TILE if has_icon else (DIM if muted else app_color(r["key"]))
             d.rounded_rectangle(sx((tx, ty, tx + ts, ty + ts)), radius=p(L["icon"] * 0.27) * SS, fill=tile_col)
-            if r["key"] in ("__master__", "__system__") and not has_icon:
+            if r["key"] == "__mic__":
+                draw_panel_icon(d, (tx + ts / 2) * SS, (ty + ts / 2) * SS, ts * 0.5 * SS, "voice", WHITE,
+                                max(2, round(ts * 0.07 * SS)))
+            elif r["key"] in ("__master__", "__system__") and not has_icon:
                 draw_speaker(d, (tx + ts / 2) * SS, (ty + ts / 2) * SS, ts * 0.55 * SS, WHITE)
 
             # slider
@@ -3268,8 +3329,16 @@ class App(tk.Tk):
             mx, my = W - p(PAD + L["mute_x"]), M + RH / 2
             mr = p(L["mute_r"])
             d.ellipse(sx((mx - mr, my - mr, mx + mr, my + mr)), fill=WHITE if hm else BTN)
-            draw_speaker(d, (mx - p(2)) * SS, my * SS, mr * 1.05 * SS, DARK if hm else WHITE,
-                         muted=muted, xcolor=MUTE_ORANGE)
+            if r["key"] == "__mic__":   # microphone, crossed out when muted
+                draw_panel_icon(d, mx * SS, my * SS, mr * 1.05 * SS, "voice", DARK if hm else WHITE,
+                                max(2, round(mr * 0.13 * SS)))
+                if muted:
+                    w_ = max(3, round(mr * 0.2 * SS))
+                    d.line(((mx - mr * 0.55) * SS, (my - mr * 0.55) * SS, (mx + mr * 0.55) * SS,
+                            (my + mr * 0.55) * SS), fill=MUTE_ORANGE, width=w_)
+            else:
+                draw_speaker(d, (mx - p(2)) * SS, my * SS, mr * 1.05 * SS, DARK if hm else WHITE,
+                             muted=muted, xcolor=MUTE_ORANGE)
 
             img = big.reduce(SS)
 
@@ -3290,7 +3359,7 @@ class App(tk.Tk):
                     img.alpha_composite(ic, (tx + (ts - isz) // 2, ty + (ts - isz) // 2))
 
             t = ImageDraw.Draw(img)
-            if not has_icon and r["key"] not in ("__master__", "__system__"):
+            if not has_icon and r["key"] not in ("__master__", "__system__", "__mic__"):
                 t.text((tx + ts / 2, ty + ts / 2), pretty_name(r["key"])[:1],
                        font=font("semi", int(ts * 0.43)), fill=TEXT, anchor="mm")
             name_font = font("semi", p(L["name_font"]))
@@ -3479,7 +3548,10 @@ class App(tk.Tk):
             if shown_before != (sig[0] is not None):
                 self.resize()
             self.render()
+        t0 = time.perf_counter()
         self.draw_header()
+        self.wave_stats[0] += 1
+        self.wave_stats[1] += time.perf_counter() - t0
         self.after(WAVE_MS if self.level > 0.02 else WAVE_MS * 2, self.waves)
 
     def pick_palette(self, title):
@@ -3582,7 +3654,9 @@ class App(tk.Tk):
              "get": lambda: cfg["compact"], "set": self.toggle_compact},
             {"k": "toggle", "t": "Minimize to the tray", "icon": "tray", "on": tray_ok,
              "get": lambda: cfg["tray"] and tray_ok, "set": self.toggle_tray},
-            {"k": "head", "t": "Voice chat"},
+            {"k": "head", "t": "Microphone and voice chat"},
+            {"k": "toggle", "t": "Show the microphone", "icon": "voice", "on": self.mic_ctl is not None,
+             "get": lambda: cfg.get("mic_row", True) and self.mic_ctl is not None, "set": self.toggle_mic_row},
             {"k": "toggle", "t": "Lower music when people talk", "icon": "voice",
              "get": lambda: cfg["duck"]["on"], "set": self.toggle_duck},
             {"k": "seg", "t": "How much lower", "opts": [(15, "A lot"), (30, "Medium"), (50, "A little")],
@@ -3600,11 +3674,14 @@ class App(tk.Tk):
         if sys.platform == "win32":
             items.append({"k": "act", "t": "Create desktop shortcut", "icon": "link", "do": self.make_shortcut})
         items += [
+            {"k": "toggle", "t": "Debug mode", "icon": "bug",
+             "get": lambda: cfg.get("debug", False), "set": self.toggle_debug},
+            {"k": "act", "t": "Open Mixie's folder (logs)", "icon": "folder", "do": self.open_data_folder},
             {"k": "act", "t": "About Mixie", "icon": "info", "hint": APP_VERSION, "do": self.show_about},
             {"k": "act", "t": "Quit Mixie", "icon": "power", "danger": True, "do": self.on_close},
             {"k": "foot", "t": f"Mixie {APP_VERSION}  \u00b7  made by {AUTHOR}"},
         ]
-        self.open_panel("menubtn", items, 310)
+        self.open_panel("menubtn", items, 336)
 
     def menu_icon(self, key, build):
         img = self.menu_icons.get(key)
@@ -3712,7 +3789,7 @@ class App(tk.Tk):
         self.say("Game mode!" if name == "Game" else "Music mode! \u266a", 1.6)
 
     def save_profile(self, name):
-        self.cfg["profiles"][name] = {r["key"]: r["vol"] for r in self.rows if r["key"] != "__master__"}
+        self.cfg["profiles"][name] = {r["key"]: r["vol"] for r in self.rows if r["key"] not in ("__master__", "__mic__")}
         self.cfg["profile"] = name
         save_config(self.cfg)
         self.render()
@@ -3866,6 +3943,10 @@ class App(tk.Tk):
                 self.toggle_mute(i)
                 r = self.rows[i]
                 self.say(f"{pretty_name(r['key'])}: " + ("muted" if r["muted"] else "on"), 1.2)
+        elif kind == "mute_mic":
+            self.toggle_mic()
+        elif kind == "debug":
+            self.toggle_debug()
         elif kind == "media":
             self.media_action(action[1])
         elif kind == "profile":
@@ -4285,6 +4366,129 @@ class App(tk.Tk):
             self.react = ("surprise", time.time() + 0.8)
             self.say(MUTE_TEXT, 2.5)
 
+    # -- debug mode: numbers on screen and a log file, to find out what goes wrong
+    def toggle_debug(self):
+        self.cfg["debug"] = not self.cfg.get("debug", False)
+        save_config(self.cfg)
+        self.say("Debug mode on" if self.cfg["debug"] else "Debug mode off", 1.4)
+        if self.cfg["debug"]:
+            self.dlog(f"--- debug on  {APP_NAME} {APP_VERSION}  Python {sys.version.split()[0]}  "
+                      f"{'exe' if FROZEN else 'script'}  scale {self.S:.2f}  safe mode {SAFE_MODE}")
+        self.debug_tick(reschedule=False)
+
+    def dlog(self, text):
+        if not self.cfg.get("debug"):
+            return
+        try:
+            if os.path.exists(DEBUG_LOG) and os.path.getsize(DEBUG_LOG) > 2_000_000:
+                os.replace(DEBUG_LOG, DEBUG_LOG + ".old")
+            with open(DEBUG_LOG, "a", encoding="utf-8") as f:
+                f.write(time.strftime("%H:%M:%S ") + f"{time.time() % 1:.2f}"[1:] + "  " + text + "\n")
+        except Exception:
+            pass
+
+    def debug_lines(self):
+        an, c = self.analyzer, self.clock
+        n, secs = self.wave_stats
+        self.wave_stats = [0, 0.0]
+        dt = max(0.001, time.time() - self.dbg_last.get("t", time.time() - 1))
+        self.dbg_last["t"] = time.time()
+        fps, ms = n / dt, (secs / n * 1000 if n else 0.0)
+        age = time.time() - an.updated if an.updated else -1
+        frames = len(DANCE_MOVES.get(self.move, ())) if self.move else 0
+        return [
+            f"tempo {an.bpm:6.1f}  conf {an.tempo_conf:.2f}  {'LOCKED' if c.locked else 'free  '}"
+            f"  x{c.mult:g}  shown {c.shown or '-'}",
+            f"beat {c.phase:8.2f}  L {c.L:.3f}s  {self.state_name}/{self.mode}  energy {self.energy:.2f}",
+            f"move {self.move or '-'} {self.dance_i + 1}/{frames}  eyes {self.move_eyes}",
+            f"audio {'ok' if an.ok else 'off'}  age {age:.2f}s  waves {fps:4.1f} fps {ms:4.1f} ms"
+            f"  mic {'yes' if self.mic_ctl else 'no'}",
+        ]
+
+    def debug_tick(self, reschedule=True):
+        try:
+            on = self.cfg.get("debug", False)
+            if on:
+                lines = self.debug_lines()
+                text = "\n".join(lines)
+                f = ("Consolas", max(8, round(8 * self.S)))
+                if self.dbg_items is None:
+                    bg = self.canvas.create_rectangle(0, 0, 1, 1, fill="#000000", outline="#ff8cc6", tags="dbg")
+                    tx = self.canvas.create_text(0, 0, anchor="sw", fill="#ffd1ea", font=f, tags="dbg")
+                    self.dbg_items = (bg, tx)
+                bg, tx = self.dbg_items
+                h = self.canvas.winfo_height()
+                self.canvas.itemconfig(tx, text=text, font=f)
+                self.canvas.coords(tx, self.p(10), h - self.p(8))
+                x0, y0, x1, y1 = self.canvas.bbox(tx)
+                self.canvas.coords(bg, x0 - self.p(6), y0 - self.p(4), x1 + self.p(6), y1 + self.p(4))
+                self.canvas.tag_raise("dbg")
+                now = time.time()
+                if now - self.dbg_last.get("log", 0) >= 1.0:
+                    self.dbg_last["log"] = now
+                    self.dlog(" | ".join(" ".join(x.split()) for x in lines))
+                # things worth noting when they happen
+                ev = (self.clock.locked, self.state_name, self.move, self.clock.shown)
+                if ev != self.dbg_last.get("ev"):
+                    old = self.dbg_last.get("ev")
+                    self.dbg_last["ev"] = ev
+                    if old:
+                        names = ("locked", "state", "move", "bpm")
+                        self.dlog("event: " + ", ".join(f"{k} {a} -> {b}" for k, a, b in zip(names, old, ev)
+                                                        if a != b))
+            elif self.dbg_items is not None:
+                self.canvas.delete("dbg")
+                self.dbg_items = None
+        except Exception:
+            log_error(traceback.format_exc())
+        if reschedule:
+            self.after(250, self.debug_tick)
+
+    def open_data_folder(self):
+        try:
+            os.startfile(HERE)
+        except Exception as e:
+            self.dialog("Mixie's folder", f"Could not open the folder:\n{HERE}\n\n{e}")
+
+    def selftest_done(self):
+        """Mixie.exe --selftest: started fine, everything inside the exe can be imported."""
+        report = [f"{APP_NAME} {APP_VERSION} selftest", f"frozen {FROZEN}"]
+        for mod in ("pycaw", "comtypes", "PIL", "numpy", "soundcard", "pystray", "psutil"):
+            try:
+                importlib.import_module(mod)
+                report.append(f"{mod}: ok")
+            except Exception as e:
+                report.append(f"{mod}: FAILED {e}")
+        report.append(f"rows {len(self.rows)}  sprites {len(self.moves)} moves  analyzer ok {self.analyzer.ok}")
+        try:
+            with open(os.path.join(HERE, "selftest.txt"), "w", encoding="utf-8") as f:
+                f.write("\n".join(report) + "\n")
+        except Exception:
+            pass
+        failed = any("FAILED" in r for r in report)
+        self.on_close()
+        os._exit(1 if failed else 0)
+
+    def toggle_mic_row(self):
+        self.cfg["mic_row"] = not self.cfg.get("mic_row", True)
+        save_config(self.cfg)
+        self.order = None
+        self.refresh_now()
+
+    def toggle_mic(self):
+        i = next((j for j, r in enumerate(self.rows) if r["key"] == "__mic__"), None)
+        if i is not None:
+            self.toggle_mute(i)
+            muted = self.rows[i]["muted"]
+        elif self.mic_ctl is not None:     # the row is hidden: switch it anyway
+            muted = not self.mic_ctl.get_mute()
+            self.mic_ctl.set_mute(muted)
+        else:
+            self.say("No microphone\nfound", 1.6)
+            return
+        self.react = ("surprise", time.time() + 0.5) if muted else ("wave", time.time() + 1.0)
+        self.say("Mic off!" if muted else "Mic on! \u266a", 1.4)
+
     def sync_row(self, r, force=False):
         dragging = self.drag is not None and self.drag < len(self.rows) and self.rows[self.drag] is r
         if not force and (dragging or time.time() - r["last"] < 0.8):
@@ -4309,6 +4513,14 @@ class App(tk.Tk):
                     if r["key"] == "__master__":
                         r["ctl"] = m
             self.meter = find_meter() or self.meter
+            if not SAFE_MODE:
+                mic = find_mic()
+                if (mic is None) != (self.mic_ctl is None):
+                    self.order = None       # a microphone was plugged in or out
+                self.mic_ctl = mic
+                for r in self.rows:
+                    if r["key"] == "__mic__" and mic is not None:
+                        r["ctl"] = mic
             name = default_device_name()
             if name and name != self.device_name:
                 self.device_name = name
@@ -4335,6 +4547,8 @@ class App(tk.Tk):
             return (1, 0, pretty_name(k).lower())
 
         keys = sorted((k for k in groups if k not in hidden), key=sort_key)
+        if self.mic_ctl and "__mic__" not in hidden and self.cfg.get("mic_row", True):
+            keys.insert(0, "__mic__")
         if self.master_ctl and "__master__" not in hidden:
             keys.insert(0, "__master__")
 
@@ -4343,13 +4557,14 @@ class App(tk.Tk):
         rows = []
         for k in keys:
             r = existing.get(k)
-            if k != "__master__" and k not in self.icons:
+            if k not in ("__master__", "__mic__") and k not in self.icons:
                 self.icons[k] = exe_icon(proc_exe(groups[k]["proc"]))
             if r is None:
-                ctl = self.master_ctl if k == "__master__" else SessionControl(groups[k]["vols"])
+                ctl = (self.master_ctl if k == "__master__" else self.mic_ctl if k == "__mic__"
+                       else SessionControl(groups[k]["vols"]))
                 r = {"key": k, "ctl": ctl, "vol": 0, "muted": False, "last": 0.0}
                 self.sync_row(r, force=True)
-            elif k != "__master__":
+            elif k not in ("__master__", "__mic__"):
                 r["ctl"].volumes = groups[k]["vols"]
             rows.append(r)
         self.rows = rows

@@ -227,3 +227,10 @@ start_log.txt
 .running
 .extras_installed
 *.bak
+
+# Mixie.exe build output
+packaging/mixie.ico
+dist/
+!packaging/mixie.spec
+selftest.txt
+debug_log.txt*
