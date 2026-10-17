@@ -13,6 +13,8 @@
 - Six new outfits: crown, bunny ears, flower crown, beanie, cap and devil horns – with new seasonal picks.
 - New settings panel with switches, and a new outfit picker with Mixie in every outfit.
 - A bigger Mixie in the app and desktop icon.
+- Pop-ups (settings, outfits, messages, About, hotkeys) open on the same screen as Mixie instead of always on
+  the main screen, and messages are drawn in Mixie's own style.
 - Changing outfit or song colour no longer causes a short stutter.
 
 ## 1.2.3

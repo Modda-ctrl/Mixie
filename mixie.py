@@ -191,6 +191,42 @@ def _pip(packages):
     return False, out
 
 
+def monitor_area(x, y, fallback=None):
+    """Work area (left, top, right, bottom) of the monitor that point x, y is on -
+    so pop-ups open on the same screen as Mixie, not always on the main screen."""
+    try:
+        class POINT(ctypes.Structure):
+            _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
+
+        class RECT(ctypes.Structure):
+            _fields_ = [("l", ctypes.c_long), ("t", ctypes.c_long), ("r", ctypes.c_long), ("b", ctypes.c_long)]
+
+        class MONITORINFO(ctypes.Structure):
+            _fields_ = [("cbSize", ctypes.c_ulong), ("rcMonitor", RECT), ("rcWork", RECT), ("dwFlags", ctypes.c_ulong)]
+        user32 = ctypes.windll.user32
+        user32.MonitorFromPoint.restype = ctypes.c_void_p
+        mon = user32.MonitorFromPoint(POINT(int(x), int(y)), 2)     # 2 = nearest monitor
+        info = MONITORINFO()
+        info.cbSize = ctypes.sizeof(MONITORINFO)
+        if mon and user32.GetMonitorInfoW(ctypes.c_void_p(mon), ctypes.byref(info)):
+            w = info.rcWork
+            return w.l, w.t, w.r, w.b
+    except Exception:
+        pass
+    return fallback
+
+
+def cursor_pos():
+    try:
+        class POINT(ctypes.Structure):
+            _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
+        pt = POINT()
+        ctypes.windll.user32.GetCursorPos(ctypes.byref(pt))
+        return pt.x, pt.y
+    except Exception:
+        return None
+
+
 def install_with_window(groups):
     """Installs the package groups in a background thread while a small window shows progress.
     The window keeps responding the whole time (does not freeze)."""
@@ -218,7 +254,9 @@ def install_with_window(groups):
     dot = bar.create_rectangle(0, 0, 70, 6, fill="#ff8cc6", outline="")
     root.update_idletasks()
     w, h = root.winfo_width(), root.winfo_height()
-    root.geometry(f"+{(root.winfo_screenwidth() - w) // 2}+{(root.winfo_screenheight() - h) // 3}")
+    cur = cursor_pos() or (root.winfo_screenwidth() // 2, root.winfo_screenheight() // 2)
+    area = monitor_area(cur[0], cur[1], (0, 0, root.winfo_screenwidth(), root.winfo_screenheight()))
+    root.geometry(f"+{area[0] + (area[2] - area[0] - w) // 2}+{area[1] + (area[3] - area[1] - h) // 3}")
     threading.Thread(target=work, daemon=True).start()
     pos = [0, 6]
 
@@ -2362,10 +2400,12 @@ class Panel(tk.Toplevel):
         # place it under the button, right edges lined up, and keep it on the screen
         x = int(app.canvas.winfo_rootx() + box[2] - self.W)
         y = int(app.canvas.winfo_rooty() + box[3] + self.p(6))
-        sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
-        if y + self.H > sh - 8:
-            y = max(8, int(app.canvas.winfo_rooty() + box[1] - self.H - self.p(6)))
-        x = max(8, min(x, sw - self.W - 8))
+        # keep it on the monitor the button is on (not the main screen)
+        bx, by = app.canvas.winfo_rootx() + box[0], app.canvas.winfo_rooty() + box[1]
+        l, t, r, b = monitor_area(bx, by, (0, 0, self.winfo_screenwidth(), self.winfo_screenheight()))
+        if y + self.H > b - 8:
+            y = max(t + 8, int(by - self.H - self.p(6)))
+        x = max(l + 8, min(x, r - self.W - 8))
         self.geometry(f"{self.W}x{self.H}+{x}+{y}")
         self.render()
         self.canvas.bind("<Motion>", self.on_motion)
@@ -2577,6 +2617,150 @@ class Panel(tk.Toplevel):
             self.on_close_cb()
 
 
+def place_on_monitor(win, w, h, cx, cy, top_third=False):
+    """Centres a w x h window on cx, cy, kept inside the monitor that point is on."""
+    area = monitor_area(cx, cy, (0, 0, win.winfo_screenwidth(), win.winfo_screenheight()))
+    x = int(cx - w / 2)
+    y = int(cy - h / 2) if not top_third else int(area[1] + (area[3] - area[1] - h) / 3)
+    x = max(area[0] + 8, min(x, area[2] - w - 8))
+    y = max(area[1] + 8, min(y, area[3] - h - 8))
+    return x, y
+
+
+class Dialog(tk.Toplevel):
+    """A message in Mixie's own style, opened over the Mixie window (on whatever screen it is on).
+    Use App.dialog(); it waits until a button is pressed and returns its label (None = closed)."""
+
+    def __init__(self, app, title, text, buttons=("OK",), width=400):
+        super().__init__(app)
+        self.app, self.result = app, None
+        self.u = u = app.S
+        self.overrideredirect(True)
+        self.configure(bg=PANEL_KEY)
+        try:
+            self.attributes("-topmost", True)
+            if sys.platform == "win32":
+                self.attributes("-transparentcolor", PANEL_KEY)
+        except Exception:
+            pass
+        p = lambda v: int(round(v * u))     # noqa: E731
+        f_title, f_text, f_btn = font("semi", p(16)), font("regular", p(12)), font("semi", p(12))
+        W = p(width)
+        inner = W - p(48)
+        lines = []
+        for para in text.split("\n"):
+            words, cur = para.split(" "), ""
+            for wd in words:
+                while f_text.getlength(wd) > inner and len(wd) > 1:   # long paths: break anywhere
+                    n = len(wd)
+                    while n > 1 and f_text.getlength(wd[:n]) > inner:
+                        n -= 1
+                    if cur:
+                        lines.append(cur)
+                        cur = ""
+                    lines.append(wd[:n])
+                    wd = wd[n:]
+                t = (cur + " " + wd) if cur else wd
+                if f_text.getlength(t) <= inner or not cur:
+                    cur = t
+                else:
+                    lines.append(cur)
+                    cur = wd
+            lines.append(cur)
+        lh = p(19)
+        H = p(24) + p(26) + p(10) + len(lines) * lh + p(22) + p(38) + p(22)
+        # buttons, right-aligned; the first one is the main (pink) button
+        self.btns = []
+        x = W - p(24)
+        for i, label in enumerate(reversed(buttons)):
+            bw = int(f_btn.getlength(label)) + p(36)
+            self.btns.append((x - bw, H - p(22) - p(38), x, H - p(22), label, i == len(buttons) - 1))
+            x -= bw + p(10)
+        self.W, self.H, self.lines, self.lh = W, H, lines, lh
+        self.fonts = (f_title, f_text, f_btn)
+        self.title_text = title
+        self.hover = None
+        self.canvas = tk.Canvas(self, width=W, height=H, highlightthickness=0, bd=0, bg=PANEL_KEY)
+        self.canvas.pack()
+        self.item = self.canvas.create_image(0, 0, anchor="nw")
+        self.photo = None
+        self.render()
+        ax = app.winfo_rootx() + app.winfo_width() / 2
+        ay = app.winfo_rooty() + min(app.winfo_height() / 2, p(260))
+        x, y = place_on_monitor(self, W, H, ax, ay)
+        self.geometry(f"{W}x{H}+{x}+{y}")
+        self.canvas.bind("<Motion>", self.on_motion)
+        self.bind("<Button-1>", self.on_click)
+        self.bind("<Escape>", lambda e: self.finish(None))
+        self.bind("<Return>", lambda e: self.finish(buttons[0]))
+        self.update_idletasks()
+        try:
+            self.focus_force()
+            self.grab_set()
+        except Exception:
+            pass
+
+    def render(self):
+        S, u = SS, self.u
+        p = lambda v: int(round(v * u))     # noqa: E731
+        W, H = self.W, self.H
+        big = Image.new("RGBA", (W * S, H * S), (1, 2, 3, 255))
+        d = ImageDraw.Draw(big)
+        d.rounded_rectangle((0, 0, W * S - 1, H * S - 1), radius=16 * u * S, fill=PANEL_BG,
+                            outline=(255, 255, 255, 30), width=max(1, round(u * S)))
+        d.rounded_rectangle((p(24) * S, p(22) * S, p(52) * S, p(26) * S), radius=2 * u * S, fill=PINK)
+        for (x0, y0, x1, y1, label, main) in self.btns:
+            hov = self.hover == label
+            fill = (PINK if not hov else (255, 165, 210, 255)) if main else ((62, 64, 76, 255) if hov else (44, 46, 55, 255))
+            d.rounded_rectangle((x0 * S, y0 * S, x1 * S, y1 * S), radius=(y1 - y0) * S / 2, fill=fill)
+        out = big.reduce(S)
+        td = ImageDraw.Draw(out)
+        f_title, f_text, f_btn = self.fonts
+        td.text((p(24), p(36)), self.title_text, font=f_title, fill=TEXT, anchor="la")
+        y = p(36) + p(26) + p(10)
+        for line in self.lines:
+            td.text((p(24), y), line, font=f_text, fill=(205, 207, 218, 255), anchor="la")
+            y += self.lh
+        for (x0, y0, x1, y1, label, main) in self.btns:
+            td.text(((x0 + x1) / 2, (y0 + y1) / 2), label, font=f_btn, fill=DARK if main else TEXT, anchor="mm")
+        rgb = out.convert("RGB")
+        self.image = rgb
+        if self.photo is None:
+            self.photo = ImageTk.PhotoImage(rgb)
+            self.canvas.itemconfig(self.item, image=self.photo)
+        else:
+            self.photo.paste(rgb)
+
+    def button_at(self, x, y):
+        for (x0, y0, x1, y1, label, _) in self.btns:
+            if x0 <= x <= x1 and y0 <= y <= y1:
+                return label
+        return None
+
+    def on_motion(self, e):
+        b = self.button_at(e.x, e.y)
+        if b != self.hover:
+            self.hover = b
+            self.canvas.config(cursor="hand2" if b else "")
+            self.render()
+
+    def on_click(self, e):
+        x, y = e.x_root - self.winfo_rootx(), e.y_root - self.winfo_rooty()
+        if not (0 <= x < self.W and 0 <= y < self.H):
+            return            # modal: clicks outside do nothing
+        b = self.button_at(x, y)
+        if b:
+            self.finish(b)
+
+    def finish(self, result):
+        self.result = result
+        try:
+            self.grab_release()
+        except Exception:
+            pass
+        self.destroy()
+
+
 # ---------------------------------------------------------------- user interface
 
 class App(tk.Tk):
@@ -2770,9 +2954,8 @@ class App(tk.Tk):
                 if not is_new:      # only the icon was refreshed – no need to tell anyone
                     save_config(self.cfg)
                     return
-                messagebox.showinfo(APP_NAME, "A \"Mixie\" shortcut is now on your desktop "
-                                              "and in the Start menu.\n\nUse it to start the program "
-                                              "from now on.", parent=self)
+                self.dialog("Shortcut created", "A \"Mixie\" shortcut is now on your desktop "
+                            "and in the Start menu.\n\nUse it to start Mixie from now on.")
             elif not self.cfg.get("shortcut_error_shown"):
                 self.cfg["shortcut_error_shown"] = True
                 self.shortcut_failed(errors)
@@ -2780,14 +2963,14 @@ class App(tk.Tk):
         done()
 
     def shortcut_failed(self, errors):
-        messagebox.showerror(
-            APP_NAME,
+        self.dialog(
+            "No shortcut",
             "Could not create the shortcut automatically.\n\n"
             "Do this instead:\n"
             "1. Right-click the desktop → New → Shortcut\n"
             f"2. Paste:\n   \"{window_python()}\" \"{SCRIPT}\"\n"
             "3. Name it Mixie\n\n"
-            "Details:\n" + "\n".join(errors)[:600], parent=self)
+            "Details:\n" + "\n".join(errors)[:600])
 
     # -- sizes
     def p(self, v):
@@ -3477,13 +3660,20 @@ class App(tk.Tk):
             m.add_command(label="No audio devices found", state="disabled")
         self.popup_at(m, self.header_buttons()["devbtn"])
 
+    def dialog(self, title, text, buttons=("OK",), width=400):
+        """Shows a message over the Mixie window and waits for an answer (the button's label)."""
+        if getattr(self, "panel", None) is not None and not self.panel.closed:
+            self.panel.close()
+        dlg = Dialog(self, title, text, buttons, width)
+        self.wait_window(dlg)
+        return dlg.result
+
     def show_about(self):
-        if messagebox.askyesno(
-                f"About {APP_NAME}",
-                f"{APP_NAME} {APP_VERSION}\n"
+        if self.dialog(
+                f"{APP_NAME} {APP_VERSION}",
                 "A per-app volume mixer with a dancing pixel buddy.\n\n"
-                f"Made by {AUTHOR}\n{REPO_URL}\n\n"
-                "Open the project page on GitHub?", parent=self):
+                f"Made by {AUTHOR}\n{REPO_URL}",
+                ("Open on GitHub", "Close")) == "Open on GitHub":
             import webbrowser
             webbrowser.open(REPO_URL)
 
@@ -3539,7 +3729,7 @@ class App(tk.Tk):
             set_output_device(dev_id)
         except Exception as e:
             log_error(f"Switch audio device: {e}")
-            messagebox.showerror(APP_NAME, f"Could not switch audio device:\n{e}", parent=self)
+            self.dialog("Audio device", f"Could not switch audio device:\n{e}")
             return
         self.device_name = name
         m = find_master()
@@ -3621,7 +3811,7 @@ class App(tk.Tk):
             text += "\n\nTaken by another program (not working):\n" + "\n".join(failed)
         if not self.cfg["hotkeys"]:
             text += "\n\n(Hotkeys are switched off right now – turn them on in the menu.)"
-        messagebox.showinfo(f"{APP_NAME} \u2013 hotkeys", text, parent=self)
+        self.dialog("Hotkeys", text, width=470)
 
     def music_row(self):
         best = None
@@ -4205,7 +4395,7 @@ class App(tk.Tk):
             self.cfg["shortcut_link"] = link
             self.cfg["shortcut_for"] = SCRIPT
             save_config(self.cfg)
-            messagebox.showinfo(APP_NAME, "The shortcut is now on your desktop and in the Start menu.", parent=self)
+            self.dialog("Shortcut created", "The shortcut is now on your desktop and in the Start menu.")
         else:
             self.shortcut_failed(errors)
 
@@ -4234,8 +4424,12 @@ class App(tk.Tk):
         log_error(text)
         if not getattr(self, "_error_shown", False):
             self._error_shown = True
-            messagebox.showerror(APP_NAME, "Something went wrong (the program keeps running):\n\n" + text[-1200:]
-                                 + f"\n\nSaved to:\n{CRASH_LOG}", parent=self)
+            try:
+                self.dialog("Something went wrong", "Mixie keeps running.\n\n" + text[-900:]
+                            + f"\n\nSaved to:\n{CRASH_LOG}", width=520)
+            except Exception:
+                messagebox.showerror(APP_NAME, "Something went wrong (the program keeps running):\n\n"
+                                     + text[-1200:] + f"\n\nSaved to:\n{CRASH_LOG}", parent=self)
 
     def heartbeat(self):
         run_mark(_STARTED)
@@ -4269,10 +4463,10 @@ if __name__ == "__main__":
         run_mark(_STARTED)
         app.after(2000, app.heartbeat)
         if SAFE_MODE:
-            app.after(1500, lambda: messagebox.showwarning(
-                APP_NAME, "The program closed unexpectedly last time.\n\n"
-                          "This time it runs without capturing audio for the waves and without song info.\n"
-                          f"The error from last time is in:\n{PREV_CRASH_LOG}", parent=app))
+            app.after(1500, lambda: app.dialog(
+                "Safe mode", "Mixie closed unexpectedly last time.\n\n"
+                             "This time it runs without capturing audio for the waves and without song info.\n\n"
+                             f"The error from last time is in:\n{PREV_CRASH_LOG}", width=460))
         app.mainloop()
         os._exit(0)   # makes sure the tray icon's thread doesn't keep the program alive
     except SystemExit:
