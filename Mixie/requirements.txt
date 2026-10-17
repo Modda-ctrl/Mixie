@@ -1,0 +1,8 @@
+# Required
+pycaw
+pillow
+
+# Optional – Mixie runs without them
+numpy       # sound waves that follow the bass
+soundcard   # captures what is playing, for the waves
+pystray     # tray icon
