@@ -526,18 +526,69 @@ def font(kind, px):
     return _font_cache[k]
 
 
+# What each setting must look like. A damaged or hand-edited settings file can't crash Mixie:
+# anything of the wrong type is replaced by the default.
+DEVICE_ID_RE = re.compile(r"\{[0-9.]+\}\.\{[0-9a-fA-F-]{36}\}")    # a Windows audio device id
+CONFIG_TYPES = {"hidden": list, "topmost": bool, "compact": bool, "tray": bool, "hotkeys": bool, "outfit": str,
+                "dress_follow": bool, "profiles": dict, "debug": bool, "mic_row": bool, "watch_mode": bool,
+                "low_power": bool, "auto_profile": bool, "my_profiles": list, "update_check": bool,
+                "app_devices": dict, "position": list, "duck": dict}
+
+
+def clean_config(cfg):
+    if not isinstance(cfg, dict):
+        return {}
+    for k, t in CONFIG_TYPES.items():
+        if k in cfg and not isinstance(cfg[k], t):
+            del cfg[k]
+    cfg["hidden"] = [h for h in cfg.get("hidden", []) if isinstance(h, str)][:200]
+    cfg["my_profiles"] = [n[:24] for n in cfg.get("my_profiles", []) if isinstance(n, str) and n.strip()][:20]
+    profiles = {}
+    for name, vols in cfg.get("profiles", {}).items():
+        if isinstance(name, str) and isinstance(vols, dict):
+            profiles[name[:24]] = {k: max(0, min(100, int(v))) for k, v in vols.items()
+                                   if isinstance(k, str) and isinstance(v, (int, float))}
+    cfg["profiles"] = profiles
+    pos = cfg.get("position")
+    if pos is not None and not (len(pos) == 2 and all(isinstance(v, int) for v in pos)):
+        del cfg["position"]
+    duck = cfg.get("duck")
+    if duck is not None:
+        lvl = duck.get("level", 30)
+        cfg["duck"] = {"on": bool(duck.get("on", False)),
+                       "level": lvl if isinstance(lvl, int) and 5 <= lvl <= 90 else 30}
+    b = cfg.get("birthday")
+    if b is not None and not (isinstance(b, str) and re.fullmatch(r"\d\d-\d\d", b)):
+        cfg["birthday"] = None
+    devs = cfg.get("app_devices", {})
+    cfg["app_devices"] = {k: v for k, v in devs.items() if isinstance(k, str) and isinstance(v, str)
+                          and DEVICE_ID_RE.fullmatch(v)}
+    return cfg
+
+
 def load_config():
     try:
         with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
+            return clean_config(json.load(f))
+    except FileNotFoundError:
+        return {}
+    except Exception as e:     # broken file: keep a copy for reference and start fresh
+        log_error(f"Settings file could not be read ({e}) - starting with default settings")
+        try:
+            os.replace(CONFIG_PATH, CONFIG_PATH + ".broken")
+        except Exception:
+            pass
         return {}
 
 
 def save_config(cfg):
+    """Writes to a temporary file first and then swaps it in, so a crash or power cut in the
+    middle of saving can never leave a half-written settings file behind."""
     try:
-        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+        tmp = CONFIG_PATH + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
             json.dump(cfg, f, indent=2)
+        os.replace(tmp, CONFIG_PATH)
     except Exception:
         pass
 
@@ -2134,6 +2185,8 @@ def _set_app_device_here(pids, dev_id):
 
 def set_app_device(pids, dev_id):
     """Starts the helper process. True when Windows accepted the change."""
+    if dev_id and not DEVICE_ID_RE.fullmatch(dev_id):
+        return False
     args = ["--set-app-device", ",".join(str(p) for p in pids), dev_id or "-"]
     cmd = [SCRIPT] + args if FROZEN else [window_python(), SCRIPT] + args
     try:
@@ -2157,8 +2210,13 @@ def latest_release():
                                  headers={"User-Agent": f"Mixie/{APP_VERSION}",
                                           "Accept": "application/vnd.github+json"})
     with urllib.request.urlopen(req, timeout=8) as r:
-        data = json.loads(r.read().decode("utf-8"))
-    return data.get("tag_name", ""), data.get("html_url", REPO_URL + "/releases/latest")
+        data = json.loads(r.read(200_000).decode("utf-8"))
+    tag = str(data.get("tag_name", ""))[:40]
+    page = str(data.get("html_url", ""))
+    # only ever open Mixie's own release page on GitHub - never a link from somewhere else
+    if not page.startswith(REPO_URL + "/releases/"):
+        page = REPO_URL + "/releases/latest"
+    return tag, page
 
 
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
@@ -2187,6 +2245,22 @@ def autostart_set(on):
                 winreg.DeleteValue(k, APP_NAME)
             except FileNotFoundError:
                 pass
+
+
+GENERIC_AUDIO = ("high definition audio", "realtek", "audio device", "nvidia", "amd ", "intel", "usb audio",
+                 "usb-audio", "sound blaster", "hd audio", "virtual audio")
+
+
+def nice_device(name, n=34):
+    """'Speakers (Realtek Audio)' -> 'Speakers', 'Headphones (Arctis 7 Game)' -> 'Arctis 7 Game',
+    'LG ULTRAGEAR (NVIDIA High Definition Audio)' -> 'LG ULTRAGEAR'."""
+    m = re.match(r"^(.*?)\s*\((.+)\)\s*$", name or "")
+    if m:
+        first, inner = m.group(1).strip(), m.group(2).strip()
+        pick = first if any(g in inner.lower() for g in GENERIC_AUDIO) and first else inner
+    else:
+        pick = name or ""
+    return pick if len(pick) <= n else pick[: n - 1].rstrip() + "\u2026"
 
 
 def short_device(name, n=26):
@@ -2420,34 +2494,6 @@ def outfit_head(style, u=1):
     return head.resize((head.width * u, head.height * u), NEAREST)
 
 
-def menu_tile(head, auto=False, u=1):
-    """Small dark tile with an icon inside, so it shows in both light and dark menus."""
-    size = 26 * u
-    tile = Image.new("RGBA", (size * SS, size * SS), (0, 0, 0, 0))
-    ImageDraw.Draw(tile).rounded_rectangle((0, 0, size * SS - 1, size * SS - 1), radius=6 * u * SS,
-                                           fill=(36, 37, 46, 255))
-    tile = tile.reduce(SS)
-    h = head.resize((head.width * 22 * u // max(head.width, head.height),
-                     head.height * 22 * u // max(head.width, head.height)), NEAREST)
-    tile.alpha_composite(h, ((size - h.width) // 2, (size - h.height) // 2 + u))
-    if auto:   # small star = "by season"
-        d = ImageDraw.Draw(tile)
-        for dx, dy in ((0, -1), (-1, 0), (0, 0), (1, 0), (0, 1)):
-            x, y = size - 4 * u + dx * u, 4 * u + dy * u
-            d.rectangle((x, y, x + u - 1, y + u - 1), fill=(255, 216, 74, 255))
-    return tile
-
-
-def device_tile(kind, u=1):
-    size = 26 * u
-    big = Image.new("RGBA", (size * SS, size * SS), (0, 0, 0, 0))
-    d = ImageDraw.Draw(big)
-    d.rounded_rectangle((0, 0, size * SS - 1, size * SS - 1), radius=6 * u * SS, fill=(36, 37, 46, 255))
-    col = {"headphones": (255, 140, 198, 255), "monitor": (120, 190, 255, 255)}.get(kind, (255, 255, 255, 255))
-    draw_device_icon(d, size * SS / 2, size * SS / 2, 15 * u * SS, kind, col, width=max(2, round(1.5 * u * SS)))
-    return big.reduce(SS)
-
-
 def fit_text(text, fnt, maxw):
     if fnt.getlength(text) <= maxw:
         return text
@@ -2591,7 +2637,8 @@ class Panel(tk.Toplevel):
 
     ROW_H = {"head": 30, "toggle": 40, "act": 38, "seg": 70, "sep": 11, "foot": 34}
 
-    def __init__(self, app, box, items, width=300, on_close=None):
+    def __init__(self, app, box, items, width=300, on_close=None, at=None):
+        """box: the header button it opens under, or at=(x, y) on the screen (right-click menus)."""
         super().__init__(app)
         self.app, self.items, self.on_close_cb = app, items, on_close
         self.u = app.S
@@ -2613,10 +2660,14 @@ class Panel(tk.Toplevel):
         self.img_item = self.canvas.create_image(0, 0, anchor="nw")
         self.photo = None
         # place it under the button, right edges lined up, and keep it on the screen
-        x = int(app.canvas.winfo_rootx() + box[2] - self.W)
-        y = int(app.canvas.winfo_rooty() + box[3] + self.p(6))
-        # keep it on the monitor the button is on (not the main screen)
-        bx, by = app.canvas.winfo_rootx() + box[0], app.canvas.winfo_rooty() + box[1]
+        if at is not None:
+            x, y = int(at[0]), int(at[1])
+            bx, by = x, y
+        else:
+            x = int(app.canvas.winfo_rootx() + box[2] - self.W)
+            y = int(app.canvas.winfo_rooty() + box[3] + self.p(6))
+            # keep it on the monitor the button is on (not the main screen)
+            bx, by = app.canvas.winfo_rootx() + box[0], app.canvas.winfo_rooty() + box[1]
         l, t, r, b = monitor_area(bx, by, (0, 0, self.winfo_screenwidth(), self.winfo_screenheight()))
         if y + self.H > b - 8:
             y = max(t + 8, int(by - self.H - self.p(6)))
@@ -2720,7 +2771,7 @@ class Panel(tk.Toplevel):
                     icons.append((it["icon"], ox + P + 12, (y0 + y1) / 2, PINK if enabled and not it.get("danger") else col))
                     tx = P + 32
                 f13 = font("regular", self.p(13))
-                room = self.wl - tx - P - (50 if k == "toggle" else 34 if it.get("hint") else 4)
+                room = self.wl - tx - P - (50 if k == "toggle" else 34 if it.get("hint") or it.get("tick") else 4)
                 texts.append((self.p(ox + tx), self.p((y0 + y1) / 2), fit_text(it["t"], f13, self.p(room)), f13, col, "lm"))
                 if k == "toggle":
                     on = bool(it["get"]())
@@ -2733,9 +2784,12 @@ class Panel(tk.Toplevel):
                     r = th / 2 - 3
                     d.ellipse((XX(kx - r), X(cy - r), XX(kx + r), X(cy + r)),
                               fill=(255, 255, 255, 255) if enabled else (130, 132, 142, 255))
+                elif it.get("tick"):     # the active choice: a drawn check mark (fonts may lack the glyph)
+                    icons.append(("check", ox + self.wl - P - 12, (y0 + y1) / 2, PINK))
                 elif it.get("hint"):
                     texts.append((self.p(ox + self.wl - P - 4), self.p((y0 + y1) / 2), it["hint"],
-                                  font("regular", self.p(12)), SUB, "rm"))
+                                  font("semi" if it.get("hint_on") else "regular", self.p(12)),
+                                  PINK if it.get("hint_on") else SUB, "rm"))
                 self.hits.append(((ox, y0, ox + self.wl, y1), idx, None))
             elif k == "seg":
                 texts.append((self.p(ox + P + 4), self.p(y0 + 14), it["t"], font("regular", self.p(13)), TEXT, "lm"))
@@ -2774,8 +2828,20 @@ class Panel(tk.Toplevel):
             elif k == "foot":
                 texts.append((self.p(self.total_w / 2), self.p((y0 + y1) / 2), it["t"], font("regular", self.p(11)),
                               (110, 113, 126, 255), "mm"))
+        # close button (X) in the top right corner
+        a, b, c, e = self.close_box()
+        if self.hover == -1:
+            d.ellipse((X(a), X(b), X(c), X(e)), fill=PANEL_HOVER)
+        m = 4.5
+        xc = (255, 255, 255, 255) if self.hover == -1 else SUB
+        d.line((X(a + m + 4), X(b + m + 4), X(c - m - 4), X(e - m - 4)), fill=xc, width=max(2, round(1.8 * u * S)))
+        d.line((X(a + m + 4), X(e - m - 4), X(c - m - 4), X(b + m + 4)), fill=xc, width=max(2, round(1.8 * u * S)))
         for ic in icons:
-            if ic[0] != "img":
+            if ic[0] == "img":
+                continue
+            if ic[0].startswith("dev:"):
+                draw_device_icon(d, X(ic[1]), X(ic[2]), X(17), ic[0][4:], ic[3], max(2, round(1.5 * u * S)))
+            else:
                 draw_panel_icon(d, X(ic[1]), X(ic[2]), X(17), ic[0], ic[3], max(2, round(1.6 * u * S)))
         out = big.reduce(S)
         for ic in icons:
@@ -2793,8 +2859,15 @@ class Panel(tk.Toplevel):
             self.photo.paste(rgb)
 
     # -- mouse
+    def close_box(self):
+        cx, cy = self.total_w - 24, 24
+        return cx - 13, cy - 13, cx + 13, cy + 13
+
     def find(self, ex, ey):
         x, y = ex / self.u, ey / self.u
+        a, b, c, e = self.close_box()
+        if a <= x <= c and b <= y <= e:
+            return -1, None                     # the X
         for (a, b, c, e), idx, j in self.hits:
             if a <= x <= c and b <= y <= e:
                 return idx, j
@@ -2823,6 +2896,9 @@ class Panel(tk.Toplevel):
         if f is None:
             return
         idx, j = f
+        if idx == -1:
+            self.close()
+            return
         it = self.rows[idx][0]
         k = it["k"]
         if k == "toggle" and it.get("on", True):
@@ -2970,6 +3046,13 @@ class Dialog(tk.Toplevel):
             hov = self.hover == label
             fill = (PINK if not hov else (255, 165, 210, 255)) if main else ((62, 64, 76, 255) if hov else (44, 46, 55, 255))
             d.rounded_rectangle((x0 * S, y0 * S, x1 * S, y1 * S), radius=(y1 - y0) * S / 2, fill=fill)
+        a, b, c, e = self.close_box()
+        if self.hover == "__x__":
+            d.ellipse((a * S, b * S, c * S, e * S), fill=PANEL_HOVER)
+        m = (c - a) * 0.34
+        xc = (255, 255, 255, 255) if self.hover == "__x__" else SUB
+        for p0, p1 in (((a + m, b + m), (c - m, e - m)), ((a + m, e - m), (c - m, b + m))):
+            d.line((p0[0] * S, p0[1] * S, p1[0] * S, p1[1] * S), fill=xc, width=max(2, round(1.8 * u * S)))
         out = big.reduce(S)
         td = ImageDraw.Draw(out)
         f_title, f_text, f_btn = self.fonts
@@ -2988,7 +3071,15 @@ class Dialog(tk.Toplevel):
         else:
             self.photo.paste(rgb)
 
+    def close_box(self):
+        u = self.u
+        cx, cy = self.W - 26 * u, 28 * u
+        return cx - 14 * u, cy - 14 * u, cx + 14 * u, cy + 14 * u
+
     def button_at(self, x, y):
+        a, b, c, e = self.close_box()
+        if a <= x <= c and b <= y <= e:
+            return "__x__"
         for (x0, y0, x1, y1, label, _) in self.btns:
             if x0 <= x <= x1 and y0 <= y <= y1:
                 return label
@@ -3006,7 +3097,9 @@ class Dialog(tk.Toplevel):
         if not (0 <= x < self.W and 0 <= y < self.H):
             return            # modal: clicks outside do nothing
         b = self.button_at(x, y)
-        if b:
+        if b == "__x__":
+            self.finish(None)
+        elif b:
             self.finish(b)
 
     def finish(self, result):
@@ -3040,6 +3133,8 @@ class App(tk.Tk):
                      ("birthday", None), ("update_check", True), ("skip_version", None), ("app_devices", {})):
             self.cfg.setdefault(k, v)
         self.last_locked_t = 0.0
+        self.still = 0.0            # 1 = the waves stand still (watch mode)
+        self.still_drawn = False
         self.video_since = None
         self.watch_said = 0.0
         self.late_t = time.time()
@@ -3165,7 +3260,6 @@ class App(tk.Tk):
         self.master_ctl = find_master()
         self.mic_ctl = None if SAFE_MODE else find_mic()
         self.meter = find_meter()
-        self.menu_icons = {}
         self.events = queue.Queue()
         self.hotkeys = Hotkeys(self.events) if self.cfg["hotkeys"] else None
         self.tray = None
@@ -3175,8 +3269,6 @@ class App(tk.Tk):
         self.media_sig = None
         self.device_name = default_device_name()
 
-        self.menu = tk.Menu(self, tearoff=0, bg="#1b1c21", fg="#ffffff", activebackground="#ffffff",
-                            activeforeground="#0e0f13", bd=0, font=("Segoe UI", 10))
 
         c = self.canvas
         c.bind("<Motion>", self.on_motion)
@@ -3361,6 +3453,7 @@ class App(tk.Tk):
         self.bg = self.background(h)
         # the background behind the waves
         self.wave_base = self.bg.crop((0, 0, self.W, self.hh)).convert("RGB")
+        self.still_drawn = False
 
     def cached(self, key, fn):
         """Small cache of finished pieces of the window. The most recently used are kept, the
@@ -3641,12 +3734,13 @@ class App(tk.Tk):
         Z = WAVE_SS
         cy = self.p(WAVE_CY)
         full = self.p(WAVE_AMP)
-        beat = self.beat
+        move = 1.0 - self.still
+        beat = self.beat * move
         S = self.S
         waves = []
         for k, (speed, cycles, strength, band) in enumerate(WAVES):
             col = tuple(int(c) for c in self.wave_cols[k])
-            e = self.band_vals[band]
+            e = self.band_vals[band] * move
             amp = full * strength * (0.06 + 0.94 * e) * (1 + 0.35 * beat)
             ph = self.phases[k]
             ripple = 0.22 * e if band >= 2 else 0.0   # mid/treble get a little extra ripple
@@ -3763,10 +3857,17 @@ class App(tk.Tk):
             for j in range(3):
                 c[j] += (tc[j] - c[j]) * fade
 
+        # watch mode: the waves settle down and stand still (it's film time)
+        target_still = 1.0 if self.state_name == "watch" else 0.0
+        self.still += (target_still - self.still) * min(1.0, dt * 1.5)
+        if self.still > 0.995:
+            self.still = 1.0
+
         # the waves move faster the more happens in their band, and jolt on bass hits
+        move = 1.0 - self.still
         for k, (speed, _, _, band) in enumerate(WAVES):
             e = self.band_vals[band]
-            self.phases[k] += dt * speed * (0.35 + 2.6 * e + 2.2 * self.beat)
+            self.phases[k] += dt * speed * (0.35 + 2.6 * e + 2.2 * self.beat) * move
 
         np_ = self.now_playing
         sig = (getattr(np_, "display", None), getattr(np_, "paused", False), self.shown_bpm())
@@ -3777,7 +3878,9 @@ class App(tk.Tk):
                 self.resize()
             self.render()
         t0 = time.perf_counter()
-        self.draw_header()
+        if self.still < 1.0 or not self.still_drawn:      # standing still: no need to redraw
+            self.draw_header()
+            self.still_drawn = self.still >= 1.0
         self.wave_stats[0] += 1
         self.wave_stats[1] += time.perf_counter() - t0
         slow = 2 if self.cfg.get("low_power") else 1      # low power mode: half the frame rate
@@ -3858,18 +3961,6 @@ class App(tk.Tk):
         self.render()
 
     # -- menus
-    def popup_at(self, menu, box):
-        x = self.canvas.winfo_rootx() + int(box[0])
-        y = self.canvas.winfo_rooty() + int(box[3]) + self.p(4)
-        try:
-            menu.tk_popup(x, y)
-        finally:
-            menu.grab_release()
-
-    def new_menu(self):
-        return tk.Menu(self, tearoff=0, bg="#1b1c21", fg="#ffffff", activebackground="#ffffff",
-                       activeforeground="#0e0f13", selectcolor="#ff8cc6", bd=0, font=("Segoe UI", 10))
-
     def open_panel(self, btn, items, width=300):
         if getattr(self, "panel", None) is not None and not self.panel.closed:
             self.panel.close()
@@ -3916,7 +4007,9 @@ class App(tk.Tk):
              "get": lambda: cfg.get("watch_mode", True), "set": self.toggle_watch},
             {"k": "act", "t": "Your birthday", "icon": "cake", "hint": self.birthday_hint(), "do": self.set_birthday},
             {"k": "head", "t": "Help"},
-            {"k": "act", "t": "Check for updates", "icon": "update", "do": lambda: self.check_updates(True)},
+            {"k": "toggle", "t": "Tell me about new versions", "icon": "update",
+             "get": lambda: cfg.get("update_check", True), "set": self.toggle_update_check},
+            {"k": "act", "t": "Check for updates now", "icon": "update", "do": lambda: self.check_updates(True)},
             {"k": "toggle", "t": "Debug mode", "icon": "bug",
              "get": lambda: cfg.get("debug", False), "set": self.toggle_debug},
             {"k": "act", "t": "Open Mixie's folder (logs)", "icon": "folder", "do": self.open_data_folder},
@@ -3925,14 +4018,6 @@ class App(tk.Tk):
             {"k": "foot", "t": f"Mixie {APP_VERSION}  \u00b7  made by {AUTHOR}"},
         ]
         self.open_panel("menubtn", items, 336)
-
-    def menu_icon(self, key, build):
-        img = self.menu_icons.get(key)
-        if img is None:
-            if len(self.menu_icons) > 60:
-                self.menu_icons.clear()
-            img = self.menu_icons[key] = ImageTk.PhotoImage(build())
-        return img
 
     def open_outfit_menu(self):
         """A grid with Mixie in every outfit."""
@@ -3962,23 +4047,28 @@ class App(tk.Tk):
         self.open_panel("outfitbtn", items, 340)
 
     def open_device_menu(self):
-        m = self.new_menu()
+        """Where the sound goes: a panel like the others, one row per device."""
         try:
             devs = output_devices()
         except Exception as e:
             devs = []
             log_error(f"Audio devices: {e}")
-        dv = tk.StringVar(value=next((d for d, _, default in devs if default), ""))
-        self._menu_vars = [dv]
-        u = max(1, round(self.S))
-        for did, name, _ in devs:
-            kind = device_kind(name)
-            img = self.menu_icon(("dev", kind), lambda kind=kind: device_tile(kind, u))
-            m.add_radiobutton(label="  " + name, value=did, variable=dv, image=img, compound="left",
-                              command=lambda did=did, name=name: self.set_device(did, name))
+        items = [{"k": "head", "t": "Play sound on"}]
+        for did, name, default in devs:
+            items.append({"k": "act", "t": nice_device(name), "icon": "dev:" + device_kind(name),
+                          "tick": default,
+                          "do": lambda did=did, name=name: self.set_device(did, name)})
         if not devs:
-            m.add_command(label="No audio devices found", state="disabled")
-        self.popup_at(m, self.header_buttons()["devbtn"])
+            items.append({"k": "act", "t": "No audio devices found", "on": False, "do": lambda: None})
+        items += [{"k": "sep"},
+                  {"k": "act", "t": "Windows sound settings", "icon": "link", "do": self.open_sound_settings}]
+        self.open_panel("devbtn", items, 330)
+
+    def open_sound_settings(self):
+        try:
+            os.startfile("ms-settings:sound")
+        except Exception:
+            pass
 
     def dialog(self, title, text, buttons=("OK",), width=400):
         """Shows a message over the Mixie window and waits for an answer (the button's label)."""
@@ -4892,6 +4982,13 @@ class App(tk.Tk):
 
     def debug_tick(self, reschedule=True):
         try:
+            if os.path.exists(SHOW_REQUEST):        # Mixie was started again: show this one
+                try:
+                    os.remove(SHOW_REQUEST)
+                except Exception:
+                    pass
+                self.show_window()
+                self.say("I'm already here! \u266a", 1.8)
             on = self.cfg.get("debug", False)
             if on:
                 lines = self.debug_lines()
@@ -4953,6 +5050,10 @@ class App(tk.Tk):
         failed = any("FAILED" in r for r in report)
         self.on_close()
         os._exit(1 if failed else 0)
+
+    def toggle_update_check(self):
+        self.cfg["update_check"] = not self.cfg.get("update_check", True)
+        save_config(self.cfg)
 
     def toggle_low_power(self):
         self.cfg["low_power"] = not self.cfg.get("low_power", False)
@@ -5088,39 +5189,35 @@ class App(tk.Tk):
 
     # -- right-click menu
     def show_menu(self, event, key):
-        self.menu.delete(0, "end")
+        """Right-click on a card (or the empty space): a small panel like the others."""
+        items = [{"k": "head", "t": pretty_name(key) if key else "Mixie"}]
         if key:
-            self.menu.add_command(label=f"Hide {pretty_name(key)}",
-                                  command=lambda: self.hide(key))
+            items.append({"k": "act", "t": f"Hide {pretty_name(key)}", "icon": "eye", "do": lambda: self.hide(key)})
             if category(key) not in ("master", "mic", "system") and sys.platform == "win32":
                 try:
                     devs = output_devices()
                 except Exception:
                     devs = []
                 if len(devs) > 1:
-                    sub = self.new_menu()
                     cur = self.cfg["app_devices"].get(key, "")
-                    self._row_dev = tk.StringVar(value=cur)
-                    sub.add_radiobutton(label="Same as Windows (default)", value="", variable=self._row_dev,
-                                        command=lambda: self.set_row_device(key, "", "the default device"))
-                    sub.add_separator()
+                    items.append({"k": "head", "t": f"Play {pretty_name(key)} on"})
+                    items.append({"k": "act", "t": "Same as Windows", "icon": "check" if not cur else "dot",
+                                  "do": lambda: self.set_row_device(key, "", "the default device")})
                     for did, name, _ in devs:
-                        sub.add_radiobutton(label=name, value=did, variable=self._row_dev,
-                                            command=lambda did=did, name=name: self.set_row_device(key, did, name))
-                    self.menu.add_cascade(label=f"Play {pretty_name(key)} on", menu=sub)
+                        items.append({"k": "act", "t": nice_device(name, 30), "icon": "dev:" + device_kind(name),
+                                      "tick": did == cur,
+                                      "do": lambda did=did, name=name: self.set_row_device(key, did, name)})
         n = len(self.cfg["hidden"])
         if n:
-            self.menu.add_command(label=f"Show hidden programs ({n})", command=self.unhide_all)
-        if self.menu.index("end") is not None:
-            self.menu.add_separator()
-        for name in PROFILE_NAMES:
-            self.menu.add_command(label=f"{name} profile", command=lambda name=name: self.apply_profile(name))
-        if sys.platform == "win32":
-            if self.menu.index("end") is not None:
-                self.menu.add_separator()
-            self.menu.add_command(label="Create desktop shortcut", command=self.make_shortcut)
-        if self.menu.index("end") is not None:
-            self.menu.tk_popup(event.x_root, event.y_root)
+            items.append({"k": "act", "t": "Show hidden programs", "icon": "eye", "hint": str(n),
+                          "do": self.unhide_all})
+        items.append({"k": "head", "t": "Profile"})
+        for name in self.all_profiles():
+            items.append({"k": "act", "t": name, "icon": "check" if name == self.cfg.get("profile") else "dot",
+                          "do": lambda name=name: self.apply_profile(name)})
+        if getattr(self, "panel", None) is not None and not self.panel.closed:
+            self.panel.close()
+        self.panel = Panel(self, None, items, 300, at=(event.x_root + 4, event.y_root + 4))
 
     def make_shortcut(self):
         link, errors = create_shortcuts(self.icon_file)
@@ -5192,8 +5289,14 @@ class App(tk.Tk):
 
 if "--set-app-device" in sys.argv:          # helper process (see set_app_device), no window
     _i = sys.argv.index("--set-app-device")
-    _pids = [int(x) for x in sys.argv[_i + 1].split(",") if x]
-    _dev = "" if sys.argv[_i + 2] == "-" else sys.argv[_i + 2]
+    try:          # only plain process numbers and a real device id are accepted
+        _pids = [int(x) for x in sys.argv[_i + 1].split(",") if x]
+        _dev = "" if sys.argv[_i + 2] == "-" else sys.argv[_i + 2]
+        if not _pids or len(_pids) > 64 or not all(0 < p < 2 ** 32 for p in _pids) or \
+                (_dev and not DEVICE_ID_RE.fullmatch(_dev)):
+            raise ValueError("bad arguments")
+    except Exception:
+        os._exit(2)
     try:
         _code = _set_app_device_here(_pids, _dev)
     except Exception as _e:
@@ -5202,7 +5305,29 @@ if "--set-app-device" in sys.argv:          # helper process (see set_app_device
     os._exit(_code)
 
 
+SHOW_REQUEST = os.path.join(tempfile.gettempdir(), "mixie_show.request")
+_instance_mutex = None
+
+
+def already_running():
+    """Only one Mixie at a time (two would fight over the hotkeys and the volumes)."""
+    global _instance_mutex
+    try:
+        k32 = ctypes.windll.kernel32
+        _instance_mutex = k32.CreateMutexW(None, False, "Local\\Mixie.SingleInstance")
+        return k32.GetLastError() == 183          # ERROR_ALREADY_EXISTS
+    except Exception:
+        return False
+
+
 if __name__ == "__main__":
+    if not SELFTEST and already_running():
+        try:       # ask the Mixie that is already running to show itself, then quit
+            with open(SHOW_REQUEST, "w", encoding="utf-8") as _f:
+                _f.write(str(time.time()))
+        except Exception:
+            pass
+        os._exit(0)
     try:
         app = App()
         run_mark(_STARTED)

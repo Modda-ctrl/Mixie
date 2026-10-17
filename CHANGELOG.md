@@ -31,6 +31,13 @@
 - **Seasons**: snow in December, bats in October – and a party hat and confetti on **your birthday**.
 - **Low power mode** for slower PCs.
 - A settings panel that is too long splits into two columns, so it fits on any screen.
+- Watch mode: the sound waves calm down and stand still while she naps.
+- Every panel and message has a close button (X); the audio device picker and the right-click menu are now
+  panels like the others.
+- Safety: only one Mixie runs at a time (starting it again brings the running one forward), a damaged
+  settings file can no longer crash it and settings are saved safely, the installer checks a SHA-256 checksum
+  before installing, update checks only ever open Mixie's own GitHub page (and can be switched off), and the
+  device helper only accepts valid input. Releases come with checksums and a signed build attestation.
 - Debug mode (settings or <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>D</kbd>): shows tempo, beat, dance and frame-rate
   numbers and writes `debug_log.txt`, to make problems easy to report.
 

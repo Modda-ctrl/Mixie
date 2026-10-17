@@ -176,6 +176,12 @@ Only prebuilt packages are installed (`--only-binary`), so nothing is compiled o
 - **Install Mixie.bat:** a single file that contains both the installer and `mixie.py`. Rebuild it with
   `py installer\build_installer.py`.
 
+## 🔒 Privacy and security
+
+No accounts and no tracking. The only time Mixie goes online is a daily check for a new version, and you can
+switch it off. Song names stay on your PC. Every release has checksums, and Mixie.exe comes with a signed build
+attestation, so you can check that it was built from this code. More in [SECURITY.md](SECURITY.md).
+
 ## ❤️ Credits
 
 Mixie is made by **[Modda-ctrl](https://github.com/Modda-ctrl)** – the app, the pixel art and the dance moves.

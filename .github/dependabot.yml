@@ -1,0 +1,11 @@
+# Keeps the GitHub Actions used to build Mixie.exe up to date (security fixes included).
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: monthly

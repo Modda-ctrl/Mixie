@@ -7,7 +7,9 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: write        # attach the exe to the release
+  id-token: write        # sign the build provenance
+  attestations: write
 
 jobs:
   exe:
@@ -47,13 +49,32 @@ jobs:
           "exit code: $($p.ExitCode)  (0 = done, 3 = interface not on this Windows, 4 = refused)"
           if (@(0, 3, 4) -notcontains $p.ExitCode) { throw "helper crashed" }
 
+      - name: Checksums
+        shell: pwsh
+        run: |
+          Copy-Item "Install Mixie.bat" dist\
+          $lines = Get-ChildItem dist\Mixie.exe, "dist\Install Mixie.bat" | ForEach-Object {
+            "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)" }
+          $lines | Set-Content dist\SHA256SUMS.txt
+          Get-Content dist\SHA256SUMS.txt
+
+      - name: Build provenance (proves the exe was built here, from this code)
+        if: github.event_name != 'pull_request'
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: dist/Mixie.exe
+
       - uses: actions/upload-artifact@v4
         with:
           name: Mixie-exe
-          path: dist/Mixie.exe
+          path: |
+            dist/Mixie.exe
+            dist/SHA256SUMS.txt
 
       - name: Attach to the release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/Mixie.exe
+          files: |
+            dist/Mixie.exe
+            dist/SHA256SUMS.txt
