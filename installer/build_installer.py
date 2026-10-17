@@ -1,6 +1,7 @@
 # Builds "Install Mixie.bat": a single file that contains the installer and mixie.py.
 #   python installer/build_installer.py
 import base64
+import hashlib
 import os
 import textwrap
 
@@ -51,6 +52,8 @@ rem --- Run the installer (the code is embedded further down in this file)
     if pre_steps:
         body += block("PRESTEPS", pre_steps)
     body += block("INSTALLER", installer) + block("PAYLOAD", app)
+    # checksum of mixie.py, so the installer can tell if this file was damaged or changed
+    body += "::PAYLOADSHA256::" + hashlib.sha256(app).hexdigest() + "::\n"
     with open(out_path, "w", encoding="ascii", newline="\r\n") as f:
         f.write(body)
     return out_path

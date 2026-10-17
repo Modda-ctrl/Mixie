@@ -1,6 +1,7 @@
 # Required
 pycaw
 pillow
+psutil      # finds which program is which
 
 # Optional – Mixie runs without them
 numpy       # sound waves that follow the bass

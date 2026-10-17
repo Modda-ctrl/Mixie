@@ -34,7 +34,7 @@ import tkinter as tk
 from tkinter import messagebox
 
 APP_NAME = "Mixie"
-APP_VERSION = "1.2.3"
+APP_VERSION = "1.3.0"
 AUTHOR = "Modda-ctrl"
 REPO_URL = "https://github.com/Modda-ctrl/Mixie"
 
@@ -43,11 +43,25 @@ REPO_URL = "https://github.com/Modda-ctrl/Mixie"
 import faulthandler  # noqa: E402
 import traceback  # noqa: E402
 
-_HERE0 = os.path.dirname(os.path.abspath(__file__))
+# Mixie.exe (built with PyInstaller) keeps its settings and logs in %LOCALAPPDATA%\Mixie -
+# the same folder the installer uses. Run as a script, everything lives next to mixie.py.
+FROZEN = bool(getattr(sys, "frozen", False))
+HELPER = "--set-app-device" in sys.argv     # a short-lived helper process (no window, no logs)
+SELFTEST = "--selftest" in sys.argv
+if FROZEN:
+    _HERE0 = os.path.join(os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"), APP_NAME)
+    try:
+        os.makedirs(_HERE0, exist_ok=True)
+    except Exception:
+        pass
+else:
+    _HERE0 = os.path.dirname(os.path.abspath(__file__))
 CRASH_LOG = os.path.join(_HERE0, "crash_log.txt")
 PREV_CRASH_LOG = os.path.join(_HERE0, "crash_log_previous.txt")
 _RUN_MARK = os.path.join(_HERE0, ".running")
 try:
+    if HELPER:
+        raise RuntimeError("helper process: leave the crash log alone")
     if os.path.exists(CRASH_LOG) and os.path.getsize(CRASH_LOG) > 0:
         os.replace(CRASH_LOG, PREV_CRASH_LOG)
     _crash_file = open(CRASH_LOG, "w", encoding="utf-8")
@@ -130,7 +144,7 @@ REQUIRED = {"pycaw": "pycaw", "PIL": "pillow"}           # required
 # Extras: the waves that follow the bass, and the tray icon. The program works without them.
 EXTRAS = {"soundcard": ["soundcard"], "numpy": ["numpy"], "pystray": ["pystray"]}
 EXTRAS_VERSION = "4"
-_EXTRAS_MARK = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".extras_installed")
+_EXTRAS_MARK = os.path.join(_HERE0, ".extras_installed")
 PIP_TIMEOUT = 240
 
 
@@ -191,6 +205,42 @@ def _pip(packages):
     return False, out
 
 
+def monitor_area(x, y, fallback=None):
+    """Work area (left, top, right, bottom) of the monitor that point x, y is on -
+    so pop-ups open on the same screen as Mixie, not always on the main screen."""
+    try:
+        class POINT(ctypes.Structure):
+            _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
+
+        class RECT(ctypes.Structure):
+            _fields_ = [("l", ctypes.c_long), ("t", ctypes.c_long), ("r", ctypes.c_long), ("b", ctypes.c_long)]
+
+        class MONITORINFO(ctypes.Structure):
+            _fields_ = [("cbSize", ctypes.c_ulong), ("rcMonitor", RECT), ("rcWork", RECT), ("dwFlags", ctypes.c_ulong)]
+        user32 = ctypes.windll.user32
+        user32.MonitorFromPoint.restype = ctypes.c_void_p
+        mon = user32.MonitorFromPoint(POINT(int(x), int(y)), 2)     # 2 = nearest monitor
+        info = MONITORINFO()
+        info.cbSize = ctypes.sizeof(MONITORINFO)
+        if mon and user32.GetMonitorInfoW(ctypes.c_void_p(mon), ctypes.byref(info)):
+            w = info.rcWork
+            return w.l, w.t, w.r, w.b
+    except Exception:
+        pass
+    return fallback
+
+
+def cursor_pos():
+    try:
+        class POINT(ctypes.Structure):
+            _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
+        pt = POINT()
+        ctypes.windll.user32.GetCursorPos(ctypes.byref(pt))
+        return pt.x, pt.y
+    except Exception:
+        return None
+
+
 def install_with_window(groups):
     """Installs the package groups in a background thread while a small window shows progress.
     The window keeps responding the whole time (does not freeze)."""
@@ -218,7 +268,9 @@ def install_with_window(groups):
     dot = bar.create_rectangle(0, 0, 70, 6, fill="#ff8cc6", outline="")
     root.update_idletasks()
     w, h = root.winfo_width(), root.winfo_height()
-    root.geometry(f"+{(root.winfo_screenwidth() - w) // 2}+{(root.winfo_screenheight() - h) // 3}")
+    cur = cursor_pos() or (root.winfo_screenwidth() // 2, root.winfo_screenheight() // 2)
+    area = monitor_area(cur[0], cur[1], (0, 0, root.winfo_screenwidth(), root.winfo_screenheight()))
+    root.geometry(f"+{area[0] + (area[2] - area[0] - w) // 2}+{area[1] + (area[3] - area[1] - h) // 3}")
     threading.Thread(target=work, daemon=True).start()
     pos = [0, 6]
 
@@ -241,7 +293,7 @@ def install_with_window(groups):
 
 _need = [[p] for p in _missing()]
 _need_extras = _missing_extras()
-if _need or _need_extras:
+if not FROZEN and not HELPER and (_need or _need_extras):     # (Mixie.exe has everything built in)
     _log = ""
     try:
         _log = install_with_window(_need + _need_extras)
@@ -271,18 +323,20 @@ if _need or _need_extras:
         sys.exit(1)
 
 from pycaw.pycaw import AudioUtilities  # noqa: E402
+
+
 from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont, ImageOps, ImageTk  # noqa: E402
 
 _RS = getattr(Image, "Resampling", Image)
 LANCZOS, NEAREST, BILINEAR = _RS.LANCZOS, _RS.NEAREST, _RS.BILINEAR
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-SCRIPT = os.path.abspath(__file__)
+HERE = _HERE0
+DEBUG_LOG = os.path.join(_HERE0, "debug_log.txt")
+SCRIPT = sys.executable if FROZEN else os.path.abspath(__file__)
 CONFIG_PATH = os.path.join(HERE, "mixie_config.json")
 ICON_PATH = os.path.join(HERE, "mixie.ico")
-ICON_VERSION = 3
+ICON_VERSION = 4
 REFRESH_MS = 1500
-DANCE_MS = 140
 WAVE_MS = 33  # sound waves: ~30 frames per second
 SS = 3  # supersampling: shapes are drawn 3x larger and scaled down = smooth edges
 
@@ -290,6 +344,7 @@ SS = 3  # supersampling: shapes are drawn 3x larger and scaled down = smooth edg
 PRIORITY = ["spotify.exe", "firefox.exe"]
 PRETTY = {
     "__master__": "Master volume",
+    "__mic__": "Microphone",
     "__system__": "System sounds",
     "spotify.exe": "Spotify",
     "firefox.exe": "Firefox",
@@ -336,6 +391,7 @@ BAND_EDGES = [(25, 160), (160, 600), (600, 3500), (3500, 14000)]
 
 APP_COLORS = {
     "__master__": (0, 112, 209),
+    "__mic__": (214, 60, 120),
     "__system__": (88, 94, 112),
     "spotify.exe": (29, 185, 84),
     "firefox.exe": (255, 113, 57),
@@ -385,6 +441,8 @@ VOICE_APPS = {"discord.exe", "discordptb.exe", "discordcanary.exe", "teamspeak.e
 def category(key):
     if key == "__master__":
         return "master"
+    if key == "__mic__":
+        return "mic"
     if key == "__system__":
         return "system"
     if key in MUSIC_APPS:
@@ -412,24 +470,25 @@ HOTKEYS = [
     (8, CA, 0x25, ("media", "prev"), "Ctrl + Alt + Left", "Previous track"),
     (9, CA, 0x31, ("profile", "Game"), "Ctrl + Alt + 1", "Game profile"),
     (10, CA, 0x32, ("profile", "Music"), "Ctrl + Alt + 2", "Music profile"),
+    (11, CA, 0x4E, ("mute_mic",), "Ctrl + Alt + N", "Mute / unmute your microphone"),
+    (12, CA, 0x44, ("debug",), "Ctrl + Alt + D", "Debug mode on / off"),
+    (13, CA, 0x48, ("toggle_window",), "Ctrl + Alt + H", "Show / hide Mixie"),
 ]
 MEDIA_VK = {"play": 0xB3, "next": 0xB0, "prev": 0xB1}
 
 # ------------------------------------------------------------ outfits
-OUTFITS = ["auto", "bow", "headphones", "cat", "santa", "witch", "sunglasses"]
-OUTFIT_NAMES = {"auto": "Automatic (by season)", "bow": "Bow", "headphones": "Headphones",
-                "cat": "Cat ears", "santa": "Santa hat", "witch": "Witch hat", "sunglasses": "Sunglasses"}
+OUTFITS = ["auto", "bow", "headphones", "cat", "bunny", "crown", "flowers",
+           "beanie", "cap", "sunglasses", "horns", "witch", "santa", "party"]
+OUTFIT_NAMES = {"auto": "Automatic", "bow": "Bow", "headphones": "Headphones",
+                "cat": "Cat ears", "santa": "Santa hat", "witch": "Witch hat", "sunglasses": "Sunglasses",
+                "crown": "Crown", "bunny": "Bunny ears", "beanie": "Beanie", "flowers": "Flower crown",
+                "cap": "Cap", "horns": "Devil horns", "party": "Party hat"}
 
 
 def season_outfit():
     m = time.localtime().tm_mon
-    if m == 12:
-        return "santa"
-    if m == 10:
-        return "witch"
-    if m in (6, 7, 8):
-        return "sunglasses"
-    return "bow"
+    return {12: "santa", 1: "beanie", 2: "beanie", 3: "bunny", 4: "bunny", 5: "flowers",
+            6: "sunglasses", 7: "sunglasses", 8: "sunglasses", 10: "witch", 11: "beanie"}.get(m, "bow")
 
 
 def pretty_name(key):
@@ -467,18 +526,69 @@ def font(kind, px):
     return _font_cache[k]
 
 
+# What each setting must look like. A damaged or hand-edited settings file can't crash Mixie:
+# anything of the wrong type is replaced by the default.
+DEVICE_ID_RE = re.compile(r"\{[0-9.]+\}\.\{[0-9a-fA-F-]{36}\}")    # a Windows audio device id
+CONFIG_TYPES = {"hidden": list, "topmost": bool, "compact": bool, "tray": bool, "hotkeys": bool, "outfit": str,
+                "dress_follow": bool, "profiles": dict, "debug": bool, "mic_row": bool, "watch_mode": bool,
+                "low_power": bool, "auto_profile": bool, "my_profiles": list, "update_check": bool,
+                "app_devices": dict, "position": list, "duck": dict}
+
+
+def clean_config(cfg):
+    if not isinstance(cfg, dict):
+        return {}
+    for k, t in CONFIG_TYPES.items():
+        if k in cfg and not isinstance(cfg[k], t):
+            del cfg[k]
+    cfg["hidden"] = [h for h in cfg.get("hidden", []) if isinstance(h, str)][:200]
+    cfg["my_profiles"] = [n[:24] for n in cfg.get("my_profiles", []) if isinstance(n, str) and n.strip()][:20]
+    profiles = {}
+    for name, vols in cfg.get("profiles", {}).items():
+        if isinstance(name, str) and isinstance(vols, dict):
+            profiles[name[:24]] = {k: max(0, min(100, int(v))) for k, v in vols.items()
+                                   if isinstance(k, str) and isinstance(v, (int, float))}
+    cfg["profiles"] = profiles
+    pos = cfg.get("position")
+    if pos is not None and not (len(pos) == 2 and all(isinstance(v, int) for v in pos)):
+        del cfg["position"]
+    duck = cfg.get("duck")
+    if duck is not None:
+        lvl = duck.get("level", 30)
+        cfg["duck"] = {"on": bool(duck.get("on", False)),
+                       "level": lvl if isinstance(lvl, int) and 5 <= lvl <= 90 else 30}
+    b = cfg.get("birthday")
+    if b is not None and not (isinstance(b, str) and re.fullmatch(r"\d\d-\d\d", b)):
+        cfg["birthday"] = None
+    devs = cfg.get("app_devices", {})
+    cfg["app_devices"] = {k: v for k, v in devs.items() if isinstance(k, str) and isinstance(v, str)
+                          and DEVICE_ID_RE.fullmatch(v)}
+    return cfg
+
+
 def load_config():
     try:
         with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
+            return clean_config(json.load(f))
+    except FileNotFoundError:
+        return {}
+    except Exception as e:     # broken file: keep a copy for reference and start fresh
+        log_error(f"Settings file could not be read ({e}) - starting with default settings")
+        try:
+            os.replace(CONFIG_PATH, CONFIG_PATH + ".broken")
+        except Exception:
+            pass
         return {}
 
 
 def save_config(cfg):
+    """Writes to a temporary file first and then swaps it in, so a crash or power cut in the
+    middle of saving can never leave a half-written settings file behind."""
     try:
-        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+        tmp = CONFIG_PATH + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
             json.dump(cfg, f, indent=2)
+        os.replace(tmp, CONFIG_PATH)
     except Exception:
         pass
 
@@ -534,13 +644,16 @@ def make_app_icon(size=256):
     ImageDraw.Draw(tile).rounded_rectangle((s * 0.012, s * 0.012, s * 0.988, s * 0.988), radius=int(s * 0.22),
                                            outline=(255, 255, 255, 45), width=max(2, int(s * 0.012)))
     tile = tile.resize((size, size), LANCZOS)
-    k = int(size * 0.9 // 22)
-    if k >= 1:      # whole pixels: crisp pixel art
-        h = head.resize((22 * k, 19 * k), NEAREST)
-    else:           # tiny sizes: scale down smoothly
-        h = head.resize((22 * 11, 19 * 11), NEAREST).resize((round(size * 0.9), round(size * 0.9 * 19 / 22)),
-                                                            LANCZOS)
-    tile.alpha_composite(h, ((size - h.width) // 2, (size - h.height) // 2 + max(0, size // 64)))
+    head = head.crop(head.getbbox())          # only the pixels that are her
+    hw, hh = head.size
+    k = size * 0.96 / max(hw, hh)                # she fills almost the whole tile
+    if k >= 1 and int(k) * max(hw, hh) >= size * 0.86:   # whole pixels: crisp pixel art
+        h = head.resize((hw * int(k), hh * int(k)), NEAREST)
+    else:           # in between: scale up crisply, then down smoothly to the exact size
+        big = max(1, math.ceil(k)) * 4
+        h = head.resize((hw * big, hh * big), NEAREST).resize((max(1, round(hw * k)), max(1, round(hh * k))),
+                                                             LANCZOS)
+    tile.alpha_composite(h, ((size - h.width) // 2, size - h.height - max(0, round(size * 0.02))))
     return tile
 
 
@@ -696,7 +809,7 @@ def create_shortcuts(icon_path, in_process=True):
     otherwise be cleaned up later on the wrong thread and crash the program.
     Returns (path to the desktop shortcut or None, error messages)."""
     links = shortcut_targets()
-    target, args = window_python(), f'"{SCRIPT}"'
+    target, args = (SCRIPT, "") if FROZEN else (window_python(), f'"{SCRIPT}"')
     icon = f"{icon_path},0" if icon_path else f"{target},0"
     errors = []
     ways = [("vbscript", _lnk_vbscript), ("powershell", _lnk_powershell)]
@@ -811,6 +924,8 @@ PAL = {
     "O": (74, 53, 96), "R": (255, 79, 122), "Y": (255, 216, 74),
     "P": (88, 44, 130), "p": (130, 74, 186), "G": (255, 150, 40), "g": (72, 74, 92),
     "Q": (34, 30, 48), "q": (130, 190, 255),
+    "T": (64, 208, 192), "t": (30, 142, 140), "V": (110, 214, 110), "v": (52, 150, 76),
+    "N": (232, 58, 72), "n": (150, 28, 48), "Z": (214, 150, 28), "C": (255, 104, 72), "c": (186, 58, 44),
 }
 
 
@@ -880,6 +995,66 @@ def draw_accessory(put, ox, oy, acc):
                     at(hx, hy, "g")
             for hy in (6, 7, 8):
                 at(side + 1, hy, "R")
+    elif acc == "crown":           # golden crown with three points and gems
+        span(0, 4, 11, "Z")
+        span(-1, 4, 11, "Y")
+        for hx in (4, 11):
+            at(hx, -2, "Y")
+            at(hx, -3, "Y")
+        span(-2, 7, 8, "Y")
+        span(-3, 7, 8, "Y")
+        at(7, -4, "Y")
+        at(8, -4, "Y")
+        at(5, -1, "R")
+        at(10, -1, "q")
+        at(7, -1, "W")
+    elif acc == "bunny":           # long bunny ears, the right one a little bent
+        for a, inner, tilt in ((3, 4, 0), (10, 11, 1)):
+            for hy in range(-4, 1):
+                dx = tilt if hy < -2 else 0
+                span(hy, a + dx, a + 2 + dx, "W")
+                if -4 < hy < 0:
+                    at(inner + dx, hy, "L")
+            at(inner + tilt, -5, "W")
+    elif acc == "beanie":          # knitted hat with a pompom
+        span(-2, 5, 10, "T")
+        span(-1, 3, 12, "T")
+        span(0, 2, 13, "T")
+        for hy in (1, 2):
+            for hx in range(1, 15):
+                at(hx, hy, "t" if hx % 2 else "T")     # ribbed edge
+        at(6, -1, "t")
+        at(9, 0, "t")
+        for hx, hy in ((7, -3), (8, -3), (7, -4), (8, -4), (6, -3), (9, -3)):
+            at(hx, hy, "W")
+    elif acc == "flowers":         # flower crown
+        span(1, 1, 14, "V")
+        span(0, 3, 12, "v")
+        for (hx, hy), petal in (((2, 1), "R"), ((6, -1), "Y"), ((10, -1), "L"), ((14, 1), "W")):
+            for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+                at(hx + dx, hy + dy, petal)
+            at(hx, hy, "Y" if petal != "Y" else "G")
+    elif acc == "cap":             # baseball cap, peak to the side
+        span(-2, 5, 10, "C")
+        span(-1, 3, 12, "C")
+        span(0, 2, 13, "C")
+        span(1, 1, 14, "C")
+        span(2, 9, 18, "c")
+        at(7, -1, "W")
+        at(8, -1, "W")
+        at(4, -1, "c")
+        at(5, -2, "c")
+    elif acc == "party":           # striped party hat with a pompom
+        for hy, a, b in ((1, 4, 11), (0, 5, 10), (-1, 6, 9), (-2, 6, 9), (-3, 7, 8), (-4, 7, 8)):
+            for hx in range(a, b + 1):
+                at(hx, hy, "Y" if (hx + hy) % 3 == 0 else ("q" if (hx - hy) % 4 == 0 else "R"))
+        for hx, hy in ((7, -5), (8, -5), (7, -6), (8, -6)):
+            at(hx, hy, "W")
+    elif acc == "horns":           # little devil horns
+        for hx, hy in ((3, 0), (3, -1), (2, -2), (2, -3), (12, 0), (12, -1), (13, -2), (13, -3)):
+            at(hx, hy, "N")
+        for hx, hy in ((4, 0), (11, 0)):
+            at(hx, hy, "n")
 HEAD = [
     "....KKKKKKKK....",
     "..KKHHHHHHHHKK..",
@@ -911,6 +1086,12 @@ ARMS = {
     "clap": [(-1, 0), (-1, 1), (0, 2), (1, 2), (2, 2)],            # hands together in front
     "robot_up": [(-1, 0), (-2, 0), (-3, 0), (-3, -1), (-3, -2)],   # robot: elbow out, hand up
     "robot_down": [(-1, 0), (-2, 0), (-3, 0), (-3, 1), (-3, 2)],   # robot: elbow out, hand down
+    "bent": [(-1, 0), (-2, 0), (-3, 0), (-4, -1), (-4, -2), (-4, -3)],   # elbow out, hand up by the chin
+    "front": [(-1, 0), (-1, 1), (0, 2), (1, 2)],                   # hand in front of her tummy
+    "pump": [(-1, 0), (-2, -1), (-3, -2), (-4, -2), (-5, -3), (-5, -4), (-5, -5), (-6, -5)],  # fist up high
+    "low": [(-1, 0), (-2, 1), (-3, 2), (-4, 2)],                   # arm out low
+    "high": [(-1, 0), (-2, -1), (-3, -1), (-4, -1), (-5, -2)],     # arm out high
+    "ears": [(-1, 0), (-2, -1), (-3, -2), (-4, -3), (-5, -4), (-5, -5), (-5, -6), (-5, -7)],  # hands on her ears
 }
 FRAMES = [
     dict(la="up", ra="up", b=0, sway=0, legs="both", note="l", sing=True),
@@ -930,9 +1111,14 @@ BLINK = dict(IDLE, eyes="closed")
 SIGH = dict(IDLE, la="down", ra="down", b=1, eyes="closed", sing=True)
 SLUMP = dict(IDLE, la="down", ra="down")
 # No music: stands and waits, taps her foot, blinks and sighs (~200 ms per frame)
-IDLE_FRAMES = ([IDLE] * 4 + [TAP, IDLE, TAP, IDLE, TAP] + [IDLE] * 3 + [BLINK] + [IDLE] * 5
+LOOK_L = dict(IDLE, eyes="left", la="down")
+LOOK_R = dict(IDLE, eyes="right", la="down")
+STRETCH = dict(IDLE, la="pump", ra="pump", b=0, eyes="closed", mouth="open")
+IDLE_FRAMES = ([IDLE] * 4 + [TAP, IDLE, TAP, IDLE, TAP] + [IDLE] * 3 + [BLINK] + [IDLE] * 3
+               + [LOOK_L] * 4 + [IDLE] + [LOOK_R] * 4 + [IDLE] * 3
                + [SIGH] * 3 + [SLUMP] * 4 + [dict(SLUMP, eyes="closed")] + [SLUMP] * 4
-               + [TAP, IDLE, TAP] + [IDLE] * 2)
+               + [TAP, IDLE, TAP] + [IDLE] * 3 + [BLINK] + [IDLE] * 2
+               + [dict(STRETCH, b=1)] + [STRETCH] * 4 + [dict(IDLE, eyes="happy")] * 3 + [IDLE] * 2)
 IDLE_MS = 200
 
 # Calm music: sways gently
@@ -996,21 +1182,79 @@ SPIN_FRAMES = [
     dict(la="out", ra="out", b=1, sway=0, legs="both", eyes="happy"),
     dict(la="up", ra="up", b=0, sway=0, legs="jump", eyes="happy", sing=True),
 ]
+TWIST_FRAMES = [   # twist the hips, arms bent
+    dict(la="bent", ra="front", b=1, sway=2, legs="left", dx=1),
+    dict(la="bent", ra="front", b=0, sway=1, legs="both"),
+    dict(la="front", ra="bent", b=1, sway=-2, legs="right", dx=-1),
+    dict(la="front", ra="bent", b=0, sway=-1, legs="both"),
+]
+CHEER_FRAMES = [   # pom-pom cheer: fists up one after the other, jump on the fourth
+    dict(la="pump", ra="hips", b=1, sway=1, legs="both", sing=True),
+    dict(la="out", ra="out", b=0, sway=0, legs="both"),
+    dict(la="hips", ra="pump", b=1, sway=-1, legs="both", sing=True),
+    dict(la="out", ra="out", b=0, sway=0, legs="both"),
+    dict(la="pump", ra="hips", b=1, sway=1, legs="both", sing=True),
+    dict(la="out", ra="out", b=0, sway=0, legs="both"),
+    dict(la="up", ra="up", b=0, sway=0, legs="jump", sing=True, note="l"),
+    dict(la="up", ra="up", b=1, sway=0, legs="both", mouth="open"),
+]
+KICK_FRAMES = [    # high kicks, left and right
+    dict(la="out", ra="high", b=0, sway=1, legs="kickl"),
+    dict(la="out", ra="out", b=1, sway=0, legs="both"),
+    dict(la="high", ra="out", b=0, sway=-1, legs="kickr", sing=True),
+    dict(la="out", ra="out", b=1, sway=0, legs="both"),
+]
+MOONWALK_FRAMES = [   # glides backwards to one side and back again
+    dict(la="low", ra="front", b=0, sway=-1, legs="left", dx=x, mouth="small" if i % 4 else None)
+    if i % 2 == 0 else
+    dict(la="front", ra="low", b=1, sway=1, legs="right", dx=x)
+    for i, x in enumerate((0, -1, -2, -2, -1, 0, 1, 2, 2, 1))
+]
+BOP_FRAMES = [     # nods along, calm
+    dict(la="hips", ra="hips", b=0, sway=0, legs="both", hb=1),
+    dict(la="hips", ra="hips", b=0, sway=1, legs="right"),
+    dict(la="hips", ra="hips", b=0, sway=0, legs="both", hb=1),
+    dict(la="hips", ra="hips", b=0, sway=-1, legs="left", sing=True),
+]
+PUMP_FRAMES = [    # fist pump on the beat
+    dict(la="hips", ra="pump", b=1, sway=0, legs="both", mouth="open"),
+    dict(la="hips", ra="out", b=0, sway=1, legs="left"),
+    dict(la="hips", ra="pump", b=1, sway=0, legs="both", mouth="open", note="r"),
+    dict(la="hips", ra="out", b=0, sway=-1, legs="right"),
+]
+WAVEARMS_FRAMES = [   # arms ripple like a wave from one side to the other
+    dict(la="high", ra="low", b=0, sway=-1, legs="both"),
+    dict(la="out", ra="out", b=1, sway=0, legs="right"),
+    dict(la="low", ra="high", b=0, sway=1, legs="both", sing=True),
+    dict(la="out", ra="out", b=1, sway=0, legs="left"),
+]
+SQUAT_FRAMES = [   # bounce down low, arms forward
+    dict(la="front", ra="front", b=2, sway=0, legs="both"),
+    dict(la="out", ra="out", b=0, sway=0, legs="both", sing=True),
+    dict(la="front", ra="front", b=2, sway=0, legs="both"),
+    dict(la="up", ra="up", b=0, sway=0, legs="jump", note="l"),
+]
 DANCE_MOVES = {"classic": FRAMES, "sway": CALM_FRAMES, "jump": HYPE_FRAMES, "disco": DISCO_FRAMES,
                "sidestep": SIDESTEP_FRAMES, "clap": CLAP_FRAMES, "robot": ROBOT_FRAMES,
-               "headbang": HEADBANG_FRAMES, "spin": SPIN_FRAMES}
-# Frames per beat for each move when she follows the tempo (sway is slow: one frame per beat)
-MOVE_FPB = {"sway": 1}
+               "headbang": HEADBANG_FRAMES, "spin": SPIN_FRAMES, "twist": TWIST_FRAMES,
+               "cheer": CHEER_FRAMES, "kick": KICK_FRAMES, "moonwalk": MOONWALK_FRAMES, "bop": BOP_FRAMES,
+               "pump": PUMP_FRAMES, "wavearms": WAVEARMS_FRAMES, "squat": SQUAT_FRAMES}
+# Frames per beat for each move when she follows the tempo (sway and bop are slow: one frame per beat)
+MOVE_FPB = {"sway": 1, "bop": 1}
 # Which moves fit which kind of music
-MOVE_POOLS = {"calm": ["sway", "clap", "sidestep"],
-              "dance": ["classic", "disco", "sidestep", "clap", "robot"],
-              "hype": ["jump", "headbang", "spin", "disco"]}
+MOVE_POOLS = {"calm": ["sway", "clap", "sidestep", "bop", "twist", "wavearms"],
+              "dance": ["classic", "disco", "sidestep", "clap", "robot", "twist", "moonwalk", "kick",
+                        "wavearms", "squat"],
+              "hype": ["jump", "headbang", "spin", "disco", "pump", "cheer", "kick", "squat"]}
 
 # Waves when the mouse is over her
 WAVE_FRAMES = [
     dict(la="down", ra="wave1", b=0, sway=0, legs="both", eyes="happy", sing=True),
     dict(la="down", ra="wave2", b=0, sway=0, legs="both", eyes="happy", sing=True),
 ]
+# Too loud: hands over her ears
+EARS_FRAMES = [dict(la="ears", ra="ears", b=1, sway=0, legs="both", eyes="closed", mouth="open"),
+               dict(la="ears", ra="ears", b=0, sway=0, legs="both", eyes="closed", mouth="small")]
 # Surprised (woken up, or clicked)
 SURPRISE_FRAMES = [dict(la="out", ra="out", b=0, sway=0, legs="jump", mouth="open")]
 # Sleeps after a long time without music: breathes calmly
@@ -1019,7 +1263,6 @@ SLEEP_B = dict(SLEEP_A, b=2)
 SLEEP_FRAMES = [SLEEP_A] * 4 + [SLEEP_B] * 4
 SLEEP_MS = 260
 SLEEP_AFTER = 45          # seconds without music before she falls asleep
-BLINK_CHANCE = 0.045      # chance per frame that she blinks while dancing
 
 # Speech bubbles. A ♪ at the end of the text is drawn as a pixel note.
 BUBBLE_TEXT = "Play some music\nso I can dance! \u266a"
@@ -1038,6 +1281,9 @@ FX_PATTERNS = {
     "heart": [".XX.XX.", "XXXXXXX", "XXXXXXX", ".XXXXX.", "..XXX..", "...X..."],
     "z": ["XXXX", "..X.", ".X..", "XXXX"],
     "star": [".X.", "XXX", ".X."],
+    "flake": ["X.X", ".X.", "X.X"],
+    "bat": ["X.....X", "XX.X.XX", "XXXXXXX", ".X.X.X."],
+    "confetti": ["XX", "XX"],
 }
 
 
@@ -1089,6 +1335,14 @@ def make_sprite(f, style=None):
     if eyes == "happy":
         for ex in (4, 11):       # small corners in the eyes = ^
             put(ox + ex, oy + 10, "K")
+    elif eyes in ("left", "right"):   # looking to the side: the pupils move one pixel
+        d = -1 if eyes == "left" else 1
+        for ex in (4, 10):             # left column of each eye
+            for y in (8, 9, 10):
+                put(ox + ex + (1 if d < 0 else 0), oy + y, "S")     # the side she looks away from
+                put(ox + ex + d + (1 if d < 0 else 0), oy + y, "E")
+                put(ox + ex + d + (0 if d < 0 else 1), oy + y, "E")
+            put(ox + ex + d + 1, oy + 9, "W")
     mouth = None if back else f.get("mouth")
     if mouth == "small":
         put(ox + 7, oy + 11, "S")
@@ -1122,8 +1376,16 @@ def make_sprite(f, style=None):
 
     # legs (the feet stay put when she sways)
     feet_y = 26 + SPRITE_TOP
-    for lx, lifted, shoe in ((5, f["legs"] in ("left", "jump"), (-1, 0, 1)),
-                             (9, f["legs"] in ("right", "jump"), (0, 1, 2))):
+    for lx, lifted, shoe, kick, out in ((5, f["legs"] in ("left", "jump"), (-1, 0, 1), f["legs"] == "kickl", -1),
+                                        (9, f["legs"] in ("right", "jump"), (0, 1, 2), f["legs"] == "kickr", 1)):
+        if kick:   # leg kicked out to the side
+            for n, y in enumerate(range(oy + 22, oy + 25)):
+                put(ox + lx + out * n, y, "S")
+                put(ox + lx + 1 + out * n, y, "S")
+            for dx in (0, 1):
+                put(ox + lx + out * 3 + dx + (0 if out < 0 else 1), oy + 24, "O")
+            put(ox + lx + out * 3 + (0 if out < 0 else 2), oy + 23, "O")
+            continue
         bottom = feet_y - 1 - (1 if lifted else 0)
         for y in range(oy + 22, bottom + 1):
             put(ox + lx, y, "S")
@@ -1162,6 +1424,106 @@ def make_sprite(f, style=None):
             if c:
                 img.putpixel((x, y), pal[c] + (255,))
     return img
+
+
+
+class LazyFrames:
+    """A list of sprite images that are only drawn the first time they are shown.
+    Changing outfit or song colour then costs nothing up front (no stutter)."""
+
+    def __init__(self, frames, build):
+        self.frames, self.build = frames, build
+        self.imgs = [None] * len(frames)
+
+    def __len__(self):
+        return len(self.frames)
+
+    def __getitem__(self, i):
+        img = self.imgs[i]
+        if img is None:
+            img = self.imgs[i] = self.build(self.frames[i])
+        return img
+
+
+def with_eyes(f, eyes):
+    """The same frame with other eyes (closed eyes in a frame stay closed)."""
+    return f if f.get("eyes") == "closed" else dict(f, eyes=eyes)
+
+
+class BeatClock:
+    """Mixie's own sense of the beat. It runs smoothly by itself (so she never freezes or
+    skips) and is gently pulled into line with the tempo the analyser hears. When the tempo
+    is lost for a moment - a break without drums - it keeps going for a few seconds."""
+
+    LOCK_CONF, KEEP_CONF = 0.35, 0.16   # confidence needed to find a tempo / to keep it
+    HOLD = 6.0                           # seconds it keeps the beat after losing it
+
+    def __init__(self):
+        self.phase = 0.0        # beats since start (only ever goes up)
+        self.L = 0.5            # seconds per (danced) beat
+        self.t = None
+        self.locked = False
+        self.lost_t = None
+        self.mult = 1.0         # 2 = half time for very fast songs, 0.5 = double time for slow ones
+        self.bpm = 0.0          # heard tempo, smoothed
+        self.shown = None       # the number on screen (only changes when the tempo really does)
+        self.cand, self.cand_t = None, 0.0   # a new tempo waiting to be confirmed
+
+    def update(self, now, an, playing, free_L):
+        dt = 0.0 if self.t is None else min(0.25, max(0.0, now - self.t))
+        self.t = now
+        fresh = bool(an.bpm) and an.beat_len > 0 and now - an.updated < 0.6
+        good = playing and fresh and an.tempo_conf > (self.KEEP_CONF if self.locked else self.LOCK_CONF)
+        target = None
+        if good and self.locked and abs(an.beat_len * self.mult / self.L - 1) > 0.08:
+            # A different tempo than the one she dances to. Only switch when it is clear and
+            # stays for a while - breaks and fills often fool the tracker for a moment.
+            if an.tempo_conf < self.LOCK_CONF or self.cand is None or abs(an.beat_len / self.cand - 1) > 0.04:
+                self.cand, self.cand_t = an.beat_len, now
+                good = False
+            elif now - self.cand_t < 2.0:
+                good = False
+        else:
+            self.cand = None
+        if good:
+            bpm = 60.0 / an.beat_len
+            if self.mult == 1.0:
+                self.mult = 2.0 if bpm > 158 else (0.5 if bpm < 72 else 1.0)
+            elif self.mult == 2.0 and bpm < 145 or self.mult == 0.5 and bpm > 80:
+                self.mult = 1.0
+            tL = an.beat_len * self.mult
+            target = (now - an.beat_at) / tL       # where the heard beat is, in beats
+            if not self.locked or abs(tL / self.L - 1) > 0.08:   # new tempo: jump to it
+                self.L = tL
+                self.phase += (target - self.phase) % 1.0         # forward to the next beat
+                self.bpm = bpm
+            self.L += (tL - self.L) * min(1.0, dt * 2.0)
+            self.bpm += (bpm - self.bpm) * min(1.0, dt * 1.5)
+            self.locked, self.lost_t = True, None
+        elif self.locked:
+            if self.lost_t is None:
+                self.lost_t = now
+            if not playing or now - self.lost_t > self.HOLD:
+                self.locked = False
+        if not self.locked:
+            self.L += (free_L - self.L) * min(1.0, dt * 1.5)
+            self.shown = None
+        step = dt / self.L
+        if target is not None:
+            err = (target - self.phase + 0.5) % 1.0 - 0.5          # -0.5 .. 0.5 beats
+            step += err * min(1.0, dt * 4.0)
+        self.phase += max(step, 0.35 * dt / self.L)                # never stands still
+        if self.locked and (self.shown is None or abs(self.bpm - self.shown) > 1.6):
+            self.shown = int(round(self.bpm))
+
+    LEAD = 0.03   # seconds: show each move a touch early - the picture is only updated every
+                  # ~33 ms and the sound is heard a little before it is analysed
+
+    def now_phase(self):
+        return self.phase + self.LEAD / self.L
+
+    def frac(self):
+        return self.now_phase() % 1.0
 
 
 # ---------------------------------------------------------------- audio control
@@ -1246,6 +1608,24 @@ def find_master():
         return None
 
 
+def find_mic():
+    """Volume and mute of the default microphone (None if there is none)."""
+    try:
+        dev = AudioUtilities.GetMicrophone()
+        if dev is None:
+            return None
+        ep = getattr(dev, "EndpointVolume", None)
+        if ep is None:
+            from comtypes import CLSCTX_ALL
+            from pycaw.pycaw import IAudioEndpointVolume
+            raw = getattr(dev, "_dev", dev)
+            iface = raw.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+            ep = iface.QueryInterface(IAudioEndpointVolume)
+        return MasterControl(ep)
+    except Exception:
+        return None
+
+
 def find_meter():
     """Peak level of all sound playing right now (0..1), for the sound waves."""
     try:
@@ -1322,10 +1702,11 @@ class TempoTracker:
         i = int(np.argmax(score))
         lag = float(lags[i])
         if 0 < i < len(lags) - 1:        # parabolic interpolation for a finer tempo
-            a, b, c = score[i - 1], score[i], score[i + 1]
+            a, b, c = float(score[i - 1]), float(score[i]), float(score[i + 1])   # (plain floats: see below)
             d = a - 2 * b + c
-            if d < 0:
-                lag += 0.5 * (a - c) / d
+            if d < -1e-6:      # (a nearly flat peak gives a huge, meaningless offset)
+                lag += max(-0.5, min(0.5, 0.5 * (a - c) / d))
+        lag = min(max(lag, float(lo)), float(hi))
         conf = float(ac[int(round(lag))])
         bpm = 60.0 * self.fps / lag
         self.conf = 0.7 * self.conf + 0.3 * max(0.0, conf)
@@ -1342,7 +1723,10 @@ class TempoTracker:
             if self._cand_n >= 3:
                 self.bpm, self._cand_n = bpm, 0
                 self.anchor = None
-        self.period = 60.0 * self.fps / self.bpm
+        # NumPy 2 keeps float32 when mixed with Python floats. A wall-clock time in float32 is
+        # only accurate to ~2 minutes, which wrecked the beat timing - so keep plain floats here.
+        self.bpm = float(self.bpm)
+        self.period = float(60.0 * self.fps / self.bpm)
 
         # beat phase: which offset lines up best with the onsets over the last 4 beats
         P = self.period
@@ -1360,7 +1744,9 @@ class TempoTracker:
             self.anchor = float(new_anchor)
         else:
             err = ((new_anchor - self.anchor) / P + 0.5) % 1.0 - 0.5
-            self.anchor += err * P * 0.35
+            self.anchor = float(self.anchor + err * P * 0.5)
+        # keep the anchor on a recent beat, so a tiny tempo error can't add up over time
+        self.anchor += round((self.count - 1 - self.anchor) / P - 0.5) * P
 
 
 class Analyzer:
@@ -1409,18 +1795,25 @@ class Analyzer:
                 bass_avg = 0.0
                 last_beat = 0.0
                 last_check = time.time()
+                pending = np.zeros(0, dtype=np.float32)
+                received, lag_est = 0, None
                 with mic.recorder(samplerate=sr, blocksize=block) as rec:
                     self.ok = True
                     while True:
                         data = rec.record(numframes=block)
                         mono = data.mean(axis=1) if data.ndim > 1 else data
-                        k = len(mono)
-                        if k:
-                            if k >= n:
-                                buf[:] = mono[-n:]
-                            else:
-                                buf[:-k] = buf[k:]
-                                buf[-k:] = mono
+                        # Audio can arrive in uneven chunks. Cut it into exact blocks, so every
+                        # step of the tempo tracker is exactly the same length of time.
+                        pending = np.concatenate((pending, mono.astype(np.float32)))
+                        # Sound card clock -> wall clock. Audio can arrive late in bursts, never
+                        # early, so the smallest delay seen (allowed to creep up slowly) is the truth.
+                        received += len(mono)
+                        lag_now = time.time() - received / sr
+                        lag_est = lag_now if lag_est is None else min(lag_now, lag_est + 0.0003)
+                        while len(pending) >= block:
+                            hop, pending = pending[:block], pending[block:]
+                            buf[:-block] = buf[block:]
+                            buf[-block:] = hop
                             spec = np.abs(np.fft.rfft(buf * window))
                             # onset strength: how much the (log) spectrum grew since last time
                             lm = np.log1p(spec[:flux_top] * 10.0)
@@ -1430,11 +1823,12 @@ class Analyzer:
                             if tempo.count % 24 == 0:          # ~4 times a second
                                 tempo.estimate()
                                 if tempo.bpm and tempo.anchor is not None:
-                                    t_last = time.time() - self.LATENCY
-                                    self.beat_len = tempo.period / fps
-                                    self.beat_at = t_last - (tempo.count - 1 - tempo.anchor) / fps
-                                    self.bpm = tempo.bpm
-                                self.tempo_conf = tempo.conf
+                                    # when this hop was heard (the audio still waiting came after it)
+                                    t_last = lag_est + (received - len(pending)) / sr - self.LATENCY
+                                    self.beat_len = float(tempo.period / fps)
+                                    self.beat_at = float(t_last - (tempo.count - 1 - tempo.anchor) / fps)
+                                    self.bpm = float(tempo.bpm)
+                                self.tempo_conf = float(tempo.conf)
                             vals = []
                             for i, m in enumerate(masks):
                                 e = float(np.sqrt(np.mean(spec[m] ** 2)))
@@ -1474,6 +1868,7 @@ class Off:
     display = None
     paused = False
     app = None
+    video = False
 
 
 SUFFIXES = (" \u2014 Mozilla Firefox", " - Mozilla Firefox", " - Google Chrome", " - Microsoft\u200b Edge",
@@ -1511,6 +1906,14 @@ class NowPlaying:
     IDLE_TITLES = {"spotify", "spotify premium", "spotify free", "mozilla firefox", "google chrome",
                    "microsoft edge", "vlc media player", ""}
     MEDIA_HINTS = ("youtube", "soundcloud", "spotify", "twitch", "bandcamp", "tidal", "deezer", "music")
+    # Watch mode: films, series and streams. (A music video still counts as music: Mixie only
+    # settles down to watch when there is no steady beat.)
+    VIDEO_HINTS = ("youtube", "twitch", "netflix", "disney+", "prime video", "primevideo", "hbo max", "viaplay",
+                   "svt play", "tv4 play", "crunchyroll", "plex", "jellyfin", "kick", "dr tv", "nrk tv",
+                   "apple tv", "paramount+", "skyshowtime", "max |", "| max")
+    VIDEO_PROCS = {"vlc.exe", "mpv.exe", "mpc-hc.exe", "mpc-hc64.exe", "mpc-be64.exe", "potplayer.exe",
+                   "potplayermini64.exe", "potplayermini.exe", "kodi.exe", "plex.exe", "applicationframehost.exe",
+                   "stremio.exe"}
 
     def __init__(self):
         self.title = None
@@ -1520,6 +1923,7 @@ class NowPlaying:
         self.paused = False
         self.app = None
         self.spotify_idle = False
+        self.video = False      # a film / series / stream is open
         self._names = {}
         self._misses = 0
         threading.Thread(target=self.run, daemon=True).start()
@@ -1555,7 +1959,7 @@ class NowPlaying:
                 pid = wintypes.DWORD()
                 user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
                 name = self.proc_name(pid.value)
-                if name in self.PLAYERS:
+                if name in self.PLAYERS or name in self.VIDEO_PROCS:
                     found.append((name, buf.value))
             except Exception:
                 pass
@@ -1564,8 +1968,18 @@ class NowPlaying:
         user32.EnumWindows(proto(cb), 0)
         return found
 
+    def is_video(self, name, title):
+        low = title.lower()
+        if "youtube music" in low or low.strip() in self.IDLE_TITLES:
+            return False
+        if name in self.VIDEO_PROCS and name != "applicationframehost.exe":
+            return True
+        return any(h in low for h in self.VIDEO_HINTS)
+
     def current(self):
         wins = self.titles()
+        self.video = any(self.is_video(n, t) for n, t in wins)
+        wins = [(n, t) for n, t in wins if n in self.PLAYERS]
         self.spotify_idle = any(n == "spotify.exe" and t.strip().lower() in self.IDLE_TITLES for n, t in wins)
         for name, title in wins:      # Spotify first
             if name == "spotify.exe" and title.strip().lower() not in self.IDLE_TITLES:
@@ -1727,6 +2141,128 @@ def set_output_device(dev_id):
     AudioUtilities.SetDefaultDevice(dev_id, roles=[ERole.eConsole, ERole.eMultimedia, ERole.eCommunications])
 
 
+# ---------------------------------------------------------------- one app on another audio device
+# Windows can send one program's sound to its own device (Settings -> Sound -> App volume and device
+# preferences). There is no official API for it; this uses the same internal interface as EarTrumpet.
+# It runs in a separate little process, so that if Windows changes the interface, only that process fails.
+_POLICY_IIDS = ("{ab3d4648-e242-459f-b02f-541c70306324}",    # Windows 10 21H2 and newer, Windows 11
+                "{2a59116d-6c4f-45e0-a74f-707e3fef9258}")    # older Windows 10
+_RENDER_IFACE = "{e6327cad-dcec-4949-ae8a-991e976a79d2}"
+
+
+def _set_app_device_here(pids, dev_id):
+    """Runs in the helper process. dev_id "" = back to the default device. Returns an exit code."""
+    combase = ctypes.windll.combase
+    combase.RoInitialize(1)
+    cls = "Windows.Media.Internal.AudioPolicyConfig"
+    hcls = ctypes.c_void_p()
+    combase.WindowsCreateString(ctypes.c_wchar_p(cls), len(cls), ctypes.byref(hcls))
+
+    class GUID(ctypes.Structure):
+        _fields_ = [("a", ctypes.c_ulong), ("b", ctypes.c_ushort), ("c", ctypes.c_ushort), ("d", ctypes.c_ubyte * 8)]
+    factory = ctypes.c_void_p()
+    for iid_s in _POLICY_IIDS:
+        iid = GUID()
+        ctypes.windll.ole32.CLSIDFromString(ctypes.c_wchar_p(iid_s), ctypes.byref(iid))
+        if combase.RoGetActivationFactory(hcls, ctypes.byref(iid), ctypes.byref(factory)) == 0 and factory.value:
+            break
+    else:
+        return 3
+    hdev = ctypes.c_void_p()
+    if dev_id:
+        full = f"\\\\?\\SWD#MMDEVAPI#{dev_id}#{_RENDER_IFACE}"
+        combase.WindowsCreateString(ctypes.c_wchar_p(full), len(full), ctypes.byref(hdev))
+    vtable = ctypes.cast(ctypes.cast(factory, ctypes.POINTER(ctypes.c_void_p))[0], ctypes.POINTER(ctypes.c_void_p))
+    set_fn = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, ctypes.c_uint, ctypes.c_int, ctypes.c_int,
+                                ctypes.c_void_p)(vtable[25])          # SetPersistedDefaultAudioEndpoint
+    bad = 0
+    for pid in pids:
+        for role in (0, 1):                                            # eConsole, eMultimedia
+            if set_fn(factory, int(pid), 0, role, hdev) != 0:          # 0 = eRender
+                bad += 1
+    return 0 if bad == 0 else 4
+
+
+def set_app_device(pids, dev_id):
+    """Starts the helper process. True when Windows accepted the change."""
+    if dev_id and not DEVICE_ID_RE.fullmatch(dev_id):
+        return False
+    args = ["--set-app-device", ",".join(str(p) for p in pids), dev_id or "-"]
+    cmd = [SCRIPT] + args if FROZEN else [window_python(), SCRIPT] + args
+    try:
+        res = subprocess.run(cmd, creationflags=NO_WINDOW, timeout=15)
+        return res.returncode == 0
+    except Exception as e:
+        log_error(f"Per-app device: {e}")
+        return False
+
+
+# ---------------------------------------------------------------- updates and start with Windows
+def version_tuple(v):
+    nums = [int(x) for x in re.findall(r"\d+", v or "")[:3]]
+    return tuple(nums + [0] * (3 - len(nums)))
+
+
+def latest_release():
+    """(version, page) of the newest Mixie release on GitHub, or None."""
+    import urllib.request
+    req = urllib.request.Request("https://api.github.com/repos/Modda-ctrl/Mixie/releases/latest",
+                                 headers={"User-Agent": f"Mixie/{APP_VERSION}",
+                                          "Accept": "application/vnd.github+json"})
+    with urllib.request.urlopen(req, timeout=8) as r:
+        data = json.loads(r.read(200_000).decode("utf-8"))
+    tag = str(data.get("tag_name", ""))[:40]
+    page = str(data.get("html_url", ""))
+    # only ever open Mixie's own release page on GitHub - never a link from somewhere else
+    if not page.startswith(REPO_URL + "/releases/"):
+        page = REPO_URL + "/releases/latest"
+    return tag, page
+
+
+RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+
+
+def autostart_command():
+    return f'"{SCRIPT}"' if FROZEN else f'"{window_python()}" "{SCRIPT}"'
+
+
+def autostart_get():
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY) as k:
+            return winreg.QueryValueEx(k, APP_NAME)[0]
+    except Exception:
+        return None
+
+
+def autostart_set(on):
+    import winreg
+    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_SET_VALUE) as k:
+        if on:
+            winreg.SetValueEx(k, APP_NAME, 0, winreg.REG_SZ, autostart_command())
+        else:
+            try:
+                winreg.DeleteValue(k, APP_NAME)
+            except FileNotFoundError:
+                pass
+
+
+GENERIC_AUDIO = ("high definition audio", "realtek", "audio device", "nvidia", "amd ", "intel", "usb audio",
+                 "usb-audio", "sound blaster", "hd audio", "virtual audio")
+
+
+def nice_device(name, n=34):
+    """'Speakers (Realtek Audio)' -> 'Speakers', 'Headphones (Arctis 7 Game)' -> 'Arctis 7 Game',
+    'LG ULTRAGEAR (NVIDIA High Definition Audio)' -> 'LG ULTRAGEAR'."""
+    m = re.match(r"^(.*?)\s*\((.+)\)\s*$", name or "")
+    if m:
+        first, inner = m.group(1).strip(), m.group(2).strip()
+        pick = first if any(g in inner.lower() for g in GENERIC_AUDIO) and first else inner
+    else:
+        pick = name or ""
+    return pick if len(pick) <= n else pick[: n - 1].rstrip() + "\u2026"
+
+
 def short_device(name, n=26):
     # "Headphones (Arctis 7 Game)" -> "Arctis 7 Game"; long names are shortened
     m = re.match(r"^[^()]*\((.+)\)\s*$", name or "")
@@ -1839,8 +2375,10 @@ def collect_sessions():
             vol = s.SimpleAudioVolume
         except Exception:
             continue
-        g = groups.setdefault(key, {"vols": [], "proc": None, "meters": []})
+        g = groups.setdefault(key, {"vols": [], "proc": None, "meters": [], "pids": set()})
         g["vols"].append(vol)
+        if proc:
+            g["pids"].add(proc.pid)
         if key in VOICE_APPS and IAudioMeterInformation is not None:
             try:
                 g["meters"].append(s._ctl.QueryInterface(IAudioMeterInformation))
@@ -1956,34 +2494,6 @@ def outfit_head(style, u=1):
     return head.resize((head.width * u, head.height * u), NEAREST)
 
 
-def menu_tile(head, auto=False, u=1):
-    """Small dark tile with an icon inside, so it shows in both light and dark menus."""
-    size = 26 * u
-    tile = Image.new("RGBA", (size * SS, size * SS), (0, 0, 0, 0))
-    ImageDraw.Draw(tile).rounded_rectangle((0, 0, size * SS - 1, size * SS - 1), radius=6 * u * SS,
-                                           fill=(36, 37, 46, 255))
-    tile = tile.reduce(SS)
-    h = head.resize((head.width * 22 * u // max(head.width, head.height),
-                     head.height * 22 * u // max(head.width, head.height)), NEAREST)
-    tile.alpha_composite(h, ((size - h.width) // 2, (size - h.height) // 2 + u))
-    if auto:   # small star = "by season"
-        d = ImageDraw.Draw(tile)
-        for dx, dy in ((0, -1), (-1, 0), (0, 0), (1, 0), (0, 1)):
-            x, y = size - 4 * u + dx * u, 4 * u + dy * u
-            d.rectangle((x, y, x + u - 1, y + u - 1), fill=(255, 216, 74, 255))
-    return tile
-
-
-def device_tile(kind, u=1):
-    size = 26 * u
-    big = Image.new("RGBA", (size * SS, size * SS), (0, 0, 0, 0))
-    d = ImageDraw.Draw(big)
-    d.rounded_rectangle((0, 0, size * SS - 1, size * SS - 1), radius=6 * u * SS, fill=(36, 37, 46, 255))
-    col = {"headphones": (255, 140, 198, 255), "monitor": (120, 190, 255, 255)}.get(kind, (255, 255, 255, 255))
-    draw_device_icon(d, size * SS / 2, size * SS / 2, 15 * u * SS, kind, col, width=max(2, round(1.5 * u * SS)))
-    return big.reduce(SS)
-
-
 def fit_text(text, fnt, maxw):
     if fnt.getlength(text) <= maxw:
         return text
@@ -2023,6 +2533,586 @@ def sx(box):
     return [v * SS for v in box]
 
 
+# ---------------------------------------------------------------- pop-up panels (settings, outfits)
+
+PANEL_BG = (24, 25, 31, 255)
+PANEL_HOVER = (42, 44, 53, 255)
+PANEL_LINE = (255, 255, 255, 22)
+PANEL_KEY = "#010203"      # see-through colour, gives the panel rounded corners on Windows
+
+
+def draw_panel_icon(d, cx, cy, s, kind, color, w):
+    """Small line icons for the settings panel. s = icon size (in the drawing's pixels)."""
+    h = s / 2
+    if kind == "pin":        # always on top: a push pin
+        d.ellipse((cx - h * 0.55, cy - h, cx + h * 0.55, cy - h * 0.05), outline=color, width=w)
+        d.line((cx, cy - h * 0.05, cx, cy + h), fill=color, width=w)
+        d.line((cx - h * 0.8, cy - h * 0.05, cx + h * 0.8, cy - h * 0.05), fill=color, width=w)
+    elif kind == "compact":  # two short bars
+        for dy in (-0.45, 0.25):
+            d.rounded_rectangle((cx - h, cy + dy * h - h * 0.25, cx + h, cy + dy * h + h * 0.25),
+                                radius=h * 0.2, outline=color, width=w)
+    elif kind == "tray":     # a window with a bar at the bottom
+        d.rounded_rectangle((cx - h, cy - h * 0.8, cx + h, cy + h * 0.8), radius=h * 0.25, outline=color, width=w)
+        d.line((cx - h, cy + h * 0.3, cx + h, cy + h * 0.3), fill=color, width=w)
+        d.ellipse((cx + h * 0.35, cy + h * 0.45, cx + h * 0.65, cy + h * 0.65), fill=color)
+    elif kind == "voice":    # microphone
+        d.rounded_rectangle((cx - h * 0.35, cy - h, cx + h * 0.35, cy + h * 0.25), radius=h * 0.35,
+                            outline=color, width=w)
+        d.arc((cx - h * 0.75, cy - h * 0.5, cx + h * 0.75, cy + h * 0.6), 0, 180, fill=color, width=w)
+        d.line((cx, cy + h * 0.6, cx, cy + h), fill=color, width=w)
+    elif kind == "keys":     # keyboard
+        d.rounded_rectangle((cx - h, cy - h * 0.6, cx + h, cy + h * 0.6), radius=h * 0.2, outline=color, width=w)
+        for i in range(4):
+            x = cx - h * 0.55 + i * h * 0.37
+            d.rectangle((x - w / 2, cy - h * 0.25 - w / 2, x + w / 2, cy - h * 0.25 + w / 2), fill=color)
+        d.line((cx - h * 0.45, cy + h * 0.2, cx + h * 0.45, cy + h * 0.2), fill=color, width=w)
+    elif kind == "eye":
+        d.ellipse((cx - h, cy - h * 0.55, cx + h, cy + h * 0.55), outline=color, width=w)
+        d.ellipse((cx - h * 0.28, cy - h * 0.28, cx + h * 0.28, cy + h * 0.28), fill=color)
+    elif kind == "link":     # shortcut arrow
+        d.rounded_rectangle((cx - h, cy - h * 0.6, cx + h * 0.6, cy + h), radius=h * 0.2, outline=color, width=w)
+        d.line((cx - h * 0.1, cy + h * 0.1, cx + h, cy - h), fill=color, width=w)
+        d.line((cx + h * 0.3, cy - h, cx + h, cy - h, cx + h, cy - h * 0.3), fill=color, width=w)
+    elif kind == "info":
+        d.ellipse((cx - h, cy - h, cx + h, cy + h), outline=color, width=w)
+        d.line((cx, cy - h * 0.1, cx, cy + h * 0.5), fill=color, width=w)
+        d.ellipse((cx - w * 0.7, cy - h * 0.5 - w * 0.7, cx + w * 0.7, cy - h * 0.5 + w * 0.7), fill=color)
+    elif kind == "power":
+        d.arc((cx - h, cy - h * 0.9, cx + h, cy + h * 1.1), -60, 240, fill=color, width=w)
+        d.line((cx, cy - h, cx, cy + h * 0.05), fill=color, width=w)
+    elif kind == "bug":      # debug mode
+        d.ellipse((cx - h * 0.5, cy - h * 0.55, cx + h * 0.5, cy + h * 0.85), outline=color, width=w)
+        d.line((cx, cy - h * 0.2, cx, cy + h * 0.85), fill=color, width=w)
+        for dy in (-0.05, 0.4):
+            d.line((cx - h * 0.95, cy + dy * h, cx - h * 0.5, cy + dy * h), fill=color, width=w)
+            d.line((cx + h * 0.5, cy + dy * h, cx + h * 0.95, cy + dy * h), fill=color, width=w)
+        d.line((cx - h * 0.3, cy - h * 0.5, cx - h * 0.55, cy - h), fill=color, width=w)
+        d.line((cx + h * 0.3, cy - h * 0.5, cx + h * 0.55, cy - h), fill=color, width=w)
+    elif kind == "folder":
+        d.rounded_rectangle((cx - h, cy - h * 0.55, cx + h, cy + h * 0.75), radius=h * 0.15, outline=color, width=w)
+        d.line((cx - h, cy - h * 0.55, cx - h, cy - h * 0.8, cx - h * 0.2, cy - h * 0.8, cx, cy - h * 0.55),
+               fill=color, width=w)
+    elif kind == "leaf":     # low power
+        d.chord((cx - h, cy - h * 0.7, cx + h, cy + h * 0.9), 200, 20, outline=color, width=w)
+        d.line((cx - h * 0.7, cy + h * 0.8, cx + h * 0.7, cy - h * 0.4), fill=color, width=w)
+    elif kind == "tv":       # watch mode
+        d.rounded_rectangle((cx - h, cy - h * 0.6, cx + h, cy + h * 0.75), radius=h * 0.18, outline=color, width=w)
+        d.line((cx - h * 0.4, cy - h, cx, cy - h * 0.6, cx + h * 0.4, cy - h), fill=color, width=w)
+    elif kind == "cake":     # birthday
+        d.rounded_rectangle((cx - h, cy - h * 0.1, cx + h, cy + h * 0.85), radius=h * 0.15, outline=color, width=w)
+        d.line((cx - h, cy + h * 0.3, cx + h, cy + h * 0.3), fill=color, width=w)
+        d.line((cx, cy - h * 0.1, cx, cy - h * 0.6), fill=color, width=w)
+        d.ellipse((cx - w, cy - h * 0.95 - w, cx + w, cy - h * 0.65 + w), fill=color)
+    elif kind == "update":   # circular arrow
+        d.arc((cx - h * 0.85, cy - h * 0.85, cx + h * 0.85, cy + h * 0.85), 40, 330, fill=color, width=w)
+        d.polygon([(cx + h * 0.95, cy - h * 0.75), (cx + h * 0.95, cy + h * 0.05), (cx + h * 0.2, cy - h * 0.3)],
+                  fill=color)
+    elif kind == "check":
+        d.line((cx - h * 0.8, cy, cx - h * 0.2, cy + h * 0.6, cx + h * 0.85, cy - h * 0.6), fill=color, width=w)
+    elif kind == "plus":
+        d.line((cx - h * 0.8, cy, cx + h * 0.8, cy), fill=color, width=w)
+        d.line((cx, cy - h * 0.8, cx, cy + h * 0.8), fill=color, width=w)
+    elif kind == "trash":
+        d.rounded_rectangle((cx - h * 0.65, cy - h * 0.45, cx + h * 0.65, cy + h), radius=h * 0.12, outline=color,
+                            width=w)
+        d.line((cx - h, cy - h * 0.5, cx + h, cy - h * 0.5), fill=color, width=w)
+        d.line((cx - h * 0.3, cy - h * 0.8, cx + h * 0.3, cy - h * 0.8), fill=color, width=w)
+    elif kind == "dot":
+        d.ellipse((cx - h * 0.35, cy - h * 0.35, cx + h * 0.35, cy + h * 0.35), fill=color)
+    elif kind == "star":     # "by season"
+        pts = []
+        for i in range(10):
+            r = h if i % 2 == 0 else h * 0.45
+            a = -math.pi / 2 + i * math.pi / 5
+            pts.append((cx + r * math.cos(a), cy + r * math.sin(a)))
+        d.polygon(pts, fill=color)
+
+
+class Panel(tk.Toplevel):
+    """A dark pop-up panel drawn like the rest of Mixie: section titles, switches, a segmented
+    control, buttons and a grid of tiles. Closes when you click outside it or press Esc.
+
+    items: dicts with k = "head" | "toggle" | "seg" | "act" | "sep" | "tiles" | "foot"."""
+
+    ROW_H = {"head": 30, "toggle": 40, "act": 38, "seg": 70, "sep": 11, "foot": 34}
+
+    def __init__(self, app, box, items, width=300, on_close=None, at=None):
+        """box: the header button it opens under, or at=(x, y) on the screen (right-click menus)."""
+        super().__init__(app)
+        self.app, self.items, self.on_close_cb = app, items, on_close
+        self.u = app.S
+        self.wl = width
+        self.hover = None
+        self.hits = []
+        self.closed = False
+        self.overrideredirect(True)
+        self.configure(bg=PANEL_KEY)
+        try:
+            self.attributes("-topmost", True)
+            if sys.platform == "win32":
+                self.attributes("-transparentcolor", PANEL_KEY)
+        except Exception:
+            pass
+        self.layout()
+        self.canvas = tk.Canvas(self, width=self.W, height=self.H, highlightthickness=0, bd=0, bg=PANEL_KEY)
+        self.canvas.pack()
+        self.img_item = self.canvas.create_image(0, 0, anchor="nw")
+        self.photo = None
+        # place it under the button, right edges lined up, and keep it on the screen
+        if at is not None:
+            x, y = int(at[0]), int(at[1])
+            bx, by = x, y
+        else:
+            x = int(app.canvas.winfo_rootx() + box[2] - self.W)
+            y = int(app.canvas.winfo_rooty() + box[3] + self.p(6))
+            # keep it on the monitor the button is on (not the main screen)
+            bx, by = app.canvas.winfo_rootx() + box[0], app.canvas.winfo_rooty() + box[1]
+        l, t, r, b = monitor_area(bx, by, (0, 0, self.winfo_screenwidth(), self.winfo_screenheight()))
+        if y + self.H > b - 8:
+            y = max(t + 8, int(by - self.H - self.p(6)))
+        x = max(l + 8, min(x, r - self.W - 8))
+        self.geometry(f"{self.W}x{self.H}+{x}+{y}")
+        self.render()
+        self.canvas.bind("<Motion>", self.on_motion)
+        self.canvas.bind("<Leave>", lambda e: self.set_hover(None))
+        self.bind("<Button-1>", self.on_click)
+        self.bind("<Escape>", lambda e: self.close())
+        self.bind("<FocusOut>", lambda e: self.after(80, self.check_focus))
+        self.update_idletasks()
+        try:
+            self.focus_force()
+            self.grab_set()       # clicks outside the panel come here too -> close it
+        except Exception:
+            pass
+
+    def p(self, v):
+        return int(round(v * self.u))
+
+    # -- layout
+    def tile_rows(self, it):
+        return (len(it["tiles"]) + it.get("cols", 4) - 1) // it.get("cols", 4)
+
+    def layout(self):
+        heights = []
+        for it in self.items:
+            if it["k"] == "tiles":
+                heights.append(self.tile_rows(it) * 82 + 8)
+            else:
+                heights.append(self.ROW_H[it["k"]])
+        body = [i for i, it in enumerate(self.items) if it["k"] != "foot"]
+        total = sum(heights[i] for i in body)
+        # A long panel is split into two columns (at a section title), so it fits on any screen
+        split = None
+        if total > 560:
+            run = 0
+            best = None
+            for i in body:
+                if self.items[i]["k"] == "head" and i > 0:
+                    diff = abs(run - total / 2)
+                    if best is None or diff < best:
+                        best, split = diff, i
+                run += heights[i]
+        self.rows = []
+        y, ox, col_h = 10, 0, 0
+        for i in body:
+            if i == split:
+                col_h, y, ox = y, 10, self.wl
+            self.rows.append((self.items[i], y, y + heights[i], ox))
+            y += heights[i]
+        bottom = max(y, col_h)
+        for i, it in enumerate(self.items):
+            if it["k"] == "foot":
+                self.rows.append((it, bottom, bottom + heights[i], 0))
+                bottom += heights[i]
+        self.cols = 2 if split is not None else 1
+        self.total_w = self.wl * self.cols
+        self.W = self.p(self.total_w)
+        self.H = self.p(bottom + 8)
+
+    # -- drawing
+    def render(self):
+        u, S = self.u, SS
+        W, H = self.W, self.H
+        big = Image.new("RGBA", (W * S, H * S), (1, 2, 3, 255))
+        d = ImageDraw.Draw(big)
+        d.rounded_rectangle((0, 0, W * S - 1, H * S - 1), radius=14 * u * S, fill=PANEL_BG,
+                            outline=(255, 255, 255, 30), width=max(1, round(u * S)))
+        texts = []        # (x, y, text, font, colour, anchor) drawn after scaling down = crisp text
+        icons = []
+        self.hits = []
+        P = 14            # side padding
+
+        def X(v):
+            return v * u * S
+
+        if self.cols > 1:     # line between the two columns
+            d.line((X(self.wl), X(18), X(self.wl), H * S - X(46)), fill=PANEL_LINE, width=max(1, round(u * S)))
+        for idx, (it, y0, y1, ox) in enumerate(self.rows):
+
+            def XX(v, ox=ox):
+                return X(v + ox)
+            k = it["k"]
+            hov = self.hover == idx
+            if k == "head":
+                texts.append((self.p(ox + P + 4), self.p(y1 - 9), it["t"].upper(), font("semi", self.p(10)), SUB, "ls"))
+            elif k == "sep":
+                d.line((XX(P), X((y0 + y1) / 2), XX(self.wl - P), X((y0 + y1) / 2)), fill=PANEL_LINE,
+                       width=max(1, round(u * S)))
+            elif k in ("toggle", "act"):
+                enabled = it.get("on", True)
+                if hov and enabled:
+                    d.rounded_rectangle((XX(6), X(y0 + 2), XX(self.wl - 6), X(y1 - 2)), radius=X(9), fill=PANEL_HOVER)
+                col = TEXT if enabled else DIM
+                if it.get("danger"):
+                    col = (255, 110, 130, 255)
+                tx = P + 4
+                if it.get("icon"):
+                    icons.append((it["icon"], ox + P + 12, (y0 + y1) / 2, PINK if enabled and not it.get("danger") else col))
+                    tx = P + 32
+                f13 = font("regular", self.p(13))
+                room = self.wl - tx - P - (50 if k == "toggle" else 34 if it.get("hint") or it.get("tick") else 4)
+                texts.append((self.p(ox + tx), self.p((y0 + y1) / 2), fit_text(it["t"], f13, self.p(room)), f13, col, "lm"))
+                if k == "toggle":
+                    on = bool(it["get"]())
+                    tw, th = 38, 22
+                    x1, cy = self.wl - P - 2, (y0 + y1) / 2
+                    x0 = x1 - tw
+                    track = PINK if on and enabled else ((84, 86, 98, 255) if enabled else (48, 50, 58, 255))
+                    d.rounded_rectangle((XX(x0), X(cy - th / 2), XX(x1), X(cy + th / 2)), radius=X(th / 2), fill=track)
+                    kx = x1 - th / 2 if on else x0 + th / 2
+                    r = th / 2 - 3
+                    d.ellipse((XX(kx - r), X(cy - r), XX(kx + r), X(cy + r)),
+                              fill=(255, 255, 255, 255) if enabled else (130, 132, 142, 255))
+                elif it.get("tick"):     # the active choice: a drawn check mark (fonts may lack the glyph)
+                    icons.append(("check", ox + self.wl - P - 12, (y0 + y1) / 2, PINK))
+                elif it.get("hint"):
+                    texts.append((self.p(ox + self.wl - P - 4), self.p((y0 + y1) / 2), it["hint"],
+                                  font("semi" if it.get("hint_on") else "regular", self.p(12)),
+                                  PINK if it.get("hint_on") else SUB, "rm"))
+                self.hits.append(((ox, y0, ox + self.wl, y1), idx, None))
+            elif k == "seg":
+                texts.append((self.p(ox + P + 4), self.p(y0 + 14), it["t"], font("regular", self.p(13)), TEXT, "lm"))
+                opts = it["opts"]
+                cur = it["get"]()
+                sx0, sx1, sy0, sy1 = P + 2, self.wl - P - 2, y0 + 30, y0 + 62
+                d.rounded_rectangle((XX(sx0), X(sy0), XX(sx1), X(sy1)), radius=X(10), fill=(14, 15, 19, 255))
+                segw = (sx1 - sx0 - 6) / len(opts)
+                for j, (val, label) in enumerate(opts):
+                    a = sx0 + 3 + j * segw
+                    b = a + segw
+                    if val == cur:
+                        d.rounded_rectangle((XX(a), X(sy0 + 3), XX(b), X(sy1 - 3)), radius=X(8), fill=PINK)
+                    elif self.hover == (idx, j):
+                        d.rounded_rectangle((XX(a), X(sy0 + 3), XX(b), X(sy1 - 3)), radius=X(8), fill=PANEL_HOVER)
+                    texts.append((self.p(ox + (a + b) / 2), self.p((sy0 + sy1) / 2), label,
+                                  font("semi" if val == cur else "regular", self.p(12)),
+                                  DARK if val == cur else TEXT, "mm"))
+                    self.hits.append(((ox + a, sy0, ox + b, sy1), idx, j))
+            elif k == "tiles":
+                cols = it.get("cols", 4)
+                tw = (self.wl - 2 * P) / cols
+                cur = it["get"]()
+                for j, (key, img, label) in enumerate(it["tiles"]):
+                    r_, c_ = divmod(j, cols)
+                    a, top = ox + P + c_ * tw, y0 + 4 + r_ * 82
+                    box = (a + 4, top, a + tw - 4, top + 56)
+                    sel, hv = key == cur, self.hover == (idx, j)
+                    d.rounded_rectangle([X(v) for v in box], radius=X(12),
+                                        fill=(52, 54, 64, 255) if hv else (36, 37, 46, 255),
+                                        outline=PINK if sel else None, width=round(2 * u * S))
+                    icons.append(("img", img, (box[0] + box[2]) / 2, (box[1] + box[3]) / 2))
+                    texts.append((self.p((box[0] + box[2]) / 2), self.p(top + 68), label,
+                                  font("semi" if sel else "regular", self.p(11)), TEXT if sel else SUB, "mm"))
+                    self.hits.append(((a, top, a + tw, top + 80), idx, j))
+            elif k == "foot":
+                texts.append((self.p(self.total_w / 2), self.p((y0 + y1) / 2), it["t"], font("regular", self.p(11)),
+                              (110, 113, 126, 255), "mm"))
+        # close button (X) in the top right corner
+        a, b, c, e = self.close_box()
+        if self.hover == -1:
+            d.ellipse((X(a), X(b), X(c), X(e)), fill=PANEL_HOVER)
+        m = 4.5
+        xc = (255, 255, 255, 255) if self.hover == -1 else SUB
+        d.line((X(a + m + 4), X(b + m + 4), X(c - m - 4), X(e - m - 4)), fill=xc, width=max(2, round(1.8 * u * S)))
+        d.line((X(a + m + 4), X(e - m - 4), X(c - m - 4), X(b + m + 4)), fill=xc, width=max(2, round(1.8 * u * S)))
+        for ic in icons:
+            if ic[0] == "img":
+                continue
+            if ic[0].startswith("dev:"):
+                draw_device_icon(d, X(ic[1]), X(ic[2]), X(17), ic[0][4:], ic[3], max(2, round(1.5 * u * S)))
+            else:
+                draw_panel_icon(d, X(ic[1]), X(ic[2]), X(17), ic[0], ic[3], max(2, round(1.6 * u * S)))
+        out = big.reduce(S)
+        for ic in icons:
+            if ic[0] == "img":
+                img = ic[1]
+                out.alpha_composite(img, (self.p(ic[2]) - img.width // 2, self.p(ic[3]) - img.height // 2))
+        td = ImageDraw.Draw(out)
+        for x, y, t, f, c, anchor in texts:
+            td.text((x, y), t, font=f, fill=c, anchor=anchor)
+        rgb = self.image = out.convert("RGB")   # corners stay the see-through key colour
+        if self.photo is None:
+            self.photo = ImageTk.PhotoImage(rgb)
+            self.canvas.itemconfig(self.img_item, image=self.photo)
+        else:
+            self.photo.paste(rgb)
+
+    # -- mouse
+    def close_box(self):
+        cx, cy = self.total_w - 24, 24
+        return cx - 13, cy - 13, cx + 13, cy + 13
+
+    def find(self, ex, ey):
+        x, y = ex / self.u, ey / self.u
+        a, b, c, e = self.close_box()
+        if a <= x <= c and b <= y <= e:
+            return -1, None                     # the X
+        for (a, b, c, e), idx, j in self.hits:
+            if a <= x <= c and b <= y <= e:
+                return idx, j
+        return None
+
+    def set_hover(self, h):
+        if h != self.hover:
+            self.hover = h
+            self.canvas.config(cursor="hand2" if h is not None else "")
+            self.render()
+
+    def on_motion(self, e):
+        f = self.find(e.x, e.y)
+        if f is None:
+            self.set_hover(None)
+        else:
+            idx, j = f
+            self.set_hover(idx if j is None else (idx, j))
+
+    def on_click(self, e):
+        inside = 0 <= e.x_root - self.winfo_rootx() < self.W and 0 <= e.y_root - self.winfo_rooty() < self.H
+        if not inside:
+            self.close()
+            return
+        f = self.find(e.x_root - self.winfo_rootx(), e.y_root - self.winfo_rooty())
+        if f is None:
+            return
+        idx, j = f
+        if idx == -1:
+            self.close()
+            return
+        it = self.rows[idx][0]
+        k = it["k"]
+        if k == "toggle" and it.get("on", True):
+            it["set"]()
+            self.render()
+        elif k == "act" and it.get("on", True):
+            self.close()
+            self.app.after(30, it["do"])
+        elif k == "seg":
+            it["set"](it["opts"][j][0])
+            self.render()
+        elif k == "tiles":
+            it["set"](it["tiles"][j][0])
+            self.render()
+
+    def check_focus(self):
+        if self.closed:
+            return
+        try:
+            f = self.focus_get()
+        except Exception:
+            f = None
+        if f is None:
+            self.close()
+
+    def close(self):
+        if self.closed:
+            return
+        self.closed = True
+        try:
+            self.grab_release()
+        except Exception:
+            pass
+        self.destroy()
+        if self.on_close_cb:
+            self.on_close_cb()
+
+
+def place_on_monitor(win, w, h, cx, cy, top_third=False):
+    """Centres a w x h window on cx, cy, kept inside the monitor that point is on."""
+    area = monitor_area(cx, cy, (0, 0, win.winfo_screenwidth(), win.winfo_screenheight()))
+    x = int(cx - w / 2)
+    y = int(cy - h / 2) if not top_third else int(area[1] + (area[3] - area[1] - h) / 3)
+    x = max(area[0] + 8, min(x, area[2] - w - 8))
+    y = max(area[1] + 8, min(y, area[3] - h - 8))
+    return x, y
+
+
+class Dialog(tk.Toplevel):
+    """A message in Mixie's own style, opened over the Mixie window (on whatever screen it is on).
+    Use App.dialog(); it waits until a button is pressed and returns its label (None = closed)."""
+
+    def __init__(self, app, title, text, buttons=("OK",), width=400, entry=None):
+        super().__init__(app)
+        self.app, self.result = app, None
+        self.entry_value = None
+        self.u = u = app.S
+        self.overrideredirect(True)
+        self.configure(bg=PANEL_KEY)
+        try:
+            self.attributes("-topmost", True)
+            if sys.platform == "win32":
+                self.attributes("-transparentcolor", PANEL_KEY)
+        except Exception:
+            pass
+        p = lambda v: int(round(v * u))     # noqa: E731
+        f_title, f_text, f_btn = font("semi", p(16)), font("regular", p(12)), font("semi", p(12))
+        W = p(width)
+        inner = W - p(48)
+        lines = []
+        for para in text.split("\n"):
+            words, cur = para.split(" "), ""
+            for wd in words:
+                while f_text.getlength(wd) > inner and len(wd) > 1:   # long paths: break anywhere
+                    n = len(wd)
+                    while n > 1 and f_text.getlength(wd[:n]) > inner:
+                        n -= 1
+                    if cur:
+                        lines.append(cur)
+                        cur = ""
+                    lines.append(wd[:n])
+                    wd = wd[n:]
+                t = (cur + " " + wd) if cur else wd
+                if f_text.getlength(t) <= inner or not cur:
+                    cur = t
+                else:
+                    lines.append(cur)
+                    cur = wd
+            lines.append(cur)
+        lh = p(19)
+        entry_h = p(48) if entry is not None else 0
+        H = p(24) + p(26) + p(10) + len(lines) * lh + entry_h + p(22) + p(38) + p(22)
+        # buttons, right-aligned; the first one is the main (pink) button
+        self.btns = []
+        x = W - p(24)
+        for i, label in enumerate(reversed(buttons)):
+            bw = int(f_btn.getlength(label)) + p(36)
+            self.btns.append((x - bw, H - p(22) - p(38), x, H - p(22), label, i == len(buttons) - 1))
+            x -= bw + p(10)
+        self.W, self.H, self.lines, self.lh = W, H, lines, lh
+        self.fonts = (f_title, f_text, f_btn)
+        self.title_text = title
+        self.hover = None
+        self.canvas = tk.Canvas(self, width=W, height=H, highlightthickness=0, bd=0, bg=PANEL_KEY)
+        self.canvas.pack()
+        self.item = self.canvas.create_image(0, 0, anchor="nw")
+        self.photo = None
+        self.render()
+        self.entry = None
+        if entry is not None:      # a text field (profile name, birthday ...)
+            self.entry = tk.Entry(self, font=("Segoe UI", max(9, round(11 * u))), bg="#0e0f13", fg="#ffffff",
+                                  insertbackground="#ff8cc6", relief="flat", highlightthickness=2,
+                                  highlightbackground="#3a3c48", highlightcolor="#ff8cc6")
+            self.entry.insert(0, entry)
+            ey = p(36) + p(26) + p(10) + len(lines) * lh + p(4)
+            self.canvas.create_window(p(24), ey, anchor="nw", window=self.entry, width=W - p(48), height=p(34))
+        ax = app.winfo_rootx() + app.winfo_width() / 2
+        ay = app.winfo_rooty() + min(app.winfo_height() / 2, p(260))
+        x, y = place_on_monitor(self, W, H, ax, ay)
+        self.geometry(f"{W}x{H}+{x}+{y}")
+        self.canvas.bind("<Motion>", self.on_motion)
+        self.bind("<Button-1>", self.on_click)
+        self.bind("<Escape>", lambda e: self.finish(None))
+        self.bind("<Return>", lambda e: self.finish(buttons[0]))
+        self.update_idletasks()
+        try:
+            self.focus_force()
+            self.grab_set()
+            if self.entry is not None:
+                self.entry.focus_set()
+                self.entry.select_range(0, "end")
+        except Exception:
+            pass
+
+    def render(self):
+        S, u = SS, self.u
+        p = lambda v: int(round(v * u))     # noqa: E731
+        W, H = self.W, self.H
+        big = Image.new("RGBA", (W * S, H * S), (1, 2, 3, 255))
+        d = ImageDraw.Draw(big)
+        d.rounded_rectangle((0, 0, W * S - 1, H * S - 1), radius=16 * u * S, fill=PANEL_BG,
+                            outline=(255, 255, 255, 30), width=max(1, round(u * S)))
+        d.rounded_rectangle((p(24) * S, p(22) * S, p(52) * S, p(26) * S), radius=2 * u * S, fill=PINK)
+        for (x0, y0, x1, y1, label, main) in self.btns:
+            hov = self.hover == label
+            fill = (PINK if not hov else (255, 165, 210, 255)) if main else ((62, 64, 76, 255) if hov else (44, 46, 55, 255))
+            d.rounded_rectangle((x0 * S, y0 * S, x1 * S, y1 * S), radius=(y1 - y0) * S / 2, fill=fill)
+        a, b, c, e = self.close_box()
+        if self.hover == "__x__":
+            d.ellipse((a * S, b * S, c * S, e * S), fill=PANEL_HOVER)
+        m = (c - a) * 0.34
+        xc = (255, 255, 255, 255) if self.hover == "__x__" else SUB
+        for p0, p1 in (((a + m, b + m), (c - m, e - m)), ((a + m, e - m), (c - m, b + m))):
+            d.line((p0[0] * S, p0[1] * S, p1[0] * S, p1[1] * S), fill=xc, width=max(2, round(1.8 * u * S)))
+        out = big.reduce(S)
+        td = ImageDraw.Draw(out)
+        f_title, f_text, f_btn = self.fonts
+        td.text((p(24), p(36)), self.title_text, font=f_title, fill=TEXT, anchor="la")
+        y = p(36) + p(26) + p(10)
+        for line in self.lines:
+            td.text((p(24), y), line, font=f_text, fill=(205, 207, 218, 255), anchor="la")
+            y += self.lh
+        for (x0, y0, x1, y1, label, main) in self.btns:
+            td.text(((x0 + x1) / 2, (y0 + y1) / 2), label, font=f_btn, fill=DARK if main else TEXT, anchor="mm")
+        rgb = out.convert("RGB")
+        self.image = rgb
+        if self.photo is None:
+            self.photo = ImageTk.PhotoImage(rgb)
+            self.canvas.itemconfig(self.item, image=self.photo)
+        else:
+            self.photo.paste(rgb)
+
+    def close_box(self):
+        u = self.u
+        cx, cy = self.W - 26 * u, 28 * u
+        return cx - 14 * u, cy - 14 * u, cx + 14 * u, cy + 14 * u
+
+    def button_at(self, x, y):
+        a, b, c, e = self.close_box()
+        if a <= x <= c and b <= y <= e:
+            return "__x__"
+        for (x0, y0, x1, y1, label, _) in self.btns:
+            if x0 <= x <= x1 and y0 <= y <= y1:
+                return label
+        return None
+
+    def on_motion(self, e):
+        b = self.button_at(e.x, e.y)
+        if b != self.hover:
+            self.hover = b
+            self.canvas.config(cursor="hand2" if b else "")
+            self.render()
+
+    def on_click(self, e):
+        x, y = e.x_root - self.winfo_rootx(), e.y_root - self.winfo_rooty()
+        if not (0 <= x < self.W and 0 <= y < self.H):
+            return            # modal: clicks outside do nothing
+        b = self.button_at(x, y)
+        if b == "__x__":
+            self.finish(None)
+        elif b:
+            self.finish(b)
+
+    def finish(self, result):
+        self.result = result
+        if self.entry is not None:
+            self.entry_value = self.entry.get().strip()
+        try:
+            self.grab_release()
+        except Exception:
+            pass
+        self.destroy()
+
+
 # ---------------------------------------------------------------- user interface
 
 class App(tk.Tk):
@@ -2037,6 +3127,28 @@ class App(tk.Tk):
         self.cfg.setdefault("hotkeys", True)
         self.cfg.setdefault("outfit", "auto")
         self.cfg.setdefault("dress_follow", True)
+        self.cfg.setdefault("debug", False)
+        self.cfg.setdefault("mic_row", True)
+        for k, v in (("watch_mode", True), ("low_power", False), ("auto_profile", False), ("my_profiles", []),
+                     ("birthday", None), ("update_check", True), ("skip_version", None), ("app_devices", {})):
+            self.cfg.setdefault(k, v)
+        self.last_locked_t = 0.0
+        self.hidden_live = []
+        self.still = 0.0            # 1 = the waves stand still (watch mode)
+        self.still_drawn = False
+        self.video_since = None
+        self.watch_said = 0.0
+        self.late_t = time.time()
+        self.energy_hist = []
+        self.drop_t = 0.0
+        self.season_t = 0.0
+        self.party_t = 0.0
+        self.seen_games = set()
+        self.auto_from = None
+        self.last_game_t = 0.0
+        self.wave_stats = [0, 0.0]     # frames drawn, seconds spent (debug mode)
+        self.dbg_items = None
+        self.dbg_last = {}
         self.cfg.setdefault("profiles", {})
         self.cfg.setdefault("profile", None)
         duck = self.cfg.setdefault("duck", {})
@@ -2086,8 +3198,15 @@ class App(tk.Tk):
         self.move = None            # current dance move
         self.move_left = 0          # frames left before she switches move
         self.last_k = None          # last frame slot on the beat grid
+        self.move_k0 = 0            # slot where the current move started
+        self.move_eyes = "open"     # open / happy, for the whole move (no flickering eyes)
         self.grid_beat = None       # last beat on the beat grid (for the music notes)
-        self.idle_i = 0
+        self.clock = BeatClock()
+        self.next_blink = time.time() + 3.0
+        self.blink_until = 0.0
+        self.state_t = time.time()  # when she went idle / to sleep
+        self.shown_img = None
+        self.last_tick = time.time()
         self.dancing = False
         self.last_sound = 0.0
         self.mode = "dance"         # calm / dance / hype
@@ -2140,8 +3259,8 @@ class App(tk.Tk):
         self._gap = False
         self.last_wave_t = time.perf_counter()
         self.master_ctl = find_master()
+        self.mic_ctl = None if SAFE_MODE else find_mic()
         self.meter = find_meter()
-        self.menu_icons = {}
         self.events = queue.Queue()
         self.hotkeys = Hotkeys(self.events) if self.cfg["hotkeys"] else None
         self.tray = None
@@ -2151,8 +3270,6 @@ class App(tk.Tk):
         self.media_sig = None
         self.device_name = default_device_name()
 
-        self.menu = tk.Menu(self, tearoff=0, bg="#1b1c21", fg="#ffffff", activebackground="#ffffff",
-                            activeforeground="#0e0f13", bd=0, font=("Segoe UI", 10))
 
         c = self.canvas
         c.bind("<Motion>", self.on_motion)
@@ -2175,12 +3292,18 @@ class App(tk.Tk):
         dark_titlebar(self)
         set_window_icon(self, self.icon_file)
         self.refresh()
-        self.dance()
         self.bounce()
         self.waves()
-        self.after(800, self.first_run)
+        if not SELFTEST:
+            self.after(800, self.first_run)
         self.after(100, self.duck_tick)
         self.after(600, self.start_tray)
+        self.after(500, self.debug_tick)
+        if not SELFTEST and not SAFE_MODE:
+            self.after(15000, self.check_updates)
+            self.after(3000, self.fix_autostart)
+        if SELFTEST:
+            self.after(4000, self.selftest_done)
 
     # -- first start: desktop shortcut
     def first_run(self):
@@ -2210,9 +3333,8 @@ class App(tk.Tk):
                 if not is_new:      # only the icon was refreshed – no need to tell anyone
                     save_config(self.cfg)
                     return
-                messagebox.showinfo(APP_NAME, "A \"Mixie\" shortcut is now on your desktop "
-                                              "and in the Start menu.\n\nUse it to start the program "
-                                              "from now on.", parent=self)
+                self.dialog("Shortcut created", "A \"Mixie\" shortcut is now on your desktop "
+                            "and in the Start menu.\n\nUse it to start Mixie from now on.")
             elif not self.cfg.get("shortcut_error_shown"):
                 self.cfg["shortcut_error_shown"] = True
                 self.shortcut_failed(errors)
@@ -2220,14 +3342,14 @@ class App(tk.Tk):
         done()
 
     def shortcut_failed(self, errors):
-        messagebox.showerror(
-            APP_NAME,
+        self.dialog(
+            "No shortcut",
             "Could not create the shortcut automatically.\n\n"
             "Do this instead:\n"
             "1. Right-click the desktop → New → Shortcut\n"
             f"2. Paste:\n   \"{window_python()}\" \"{SCRIPT}\"\n"
             "3. Name it Mixie\n\n"
-            "Details:\n" + "\n".join(errors)[:600], parent=self)
+            "Details:\n" + "\n".join(errors)[:600])
 
     # -- sizes
     def p(self, v):
@@ -2268,10 +3390,7 @@ class App(tk.Tk):
 
     def shown_bpm(self):
         """The tempo to show, rounded and steady (None while unsure)."""
-        an = self.analyzer
-        if self.dancing and an.bpm and an.tempo_conf > 0.35:
-            return int(round(an.bpm))
-        return None
+        return self.clock.shown if self.dancing else None
 
     def media_buttons(self):
         p, L = self.p, self.L
@@ -2297,6 +3416,16 @@ class App(tk.Tk):
             for name, (cx, cy, r) in self.media_buttons().items():
                 if (x - cx) ** 2 + (y - cy) ** 2 <= (r + self.p(3)) ** 2:
                     return ("media", name)
+        if self.cfg["hidden"]:
+            for x0, y0, x1, y1, kind, key, _ in self.hidden_chips():
+                if x0 <= x <= x1 and y0 <= y <= y1:
+                    return (kind, key)
+        if self.hover and self.hover[0] in ("row", "mute", "hidebtn"):
+            i = self.hover[1]
+            if i < len(self.rows):
+                bx, by, br = self.hide_badge(i)
+                if (x - bx) ** 2 + (y - by) ** 2 <= (br + self.p(3)) ** 2:
+                    return ("hidebtn", i)
         if self.p(PAD) <= x <= self.W - self.p(PAD):
             for i in range(len(self.rows)):
                 t = self.row_top(i)
@@ -2308,6 +3437,16 @@ class App(tk.Tk):
         return None
 
     # -- rendering
+    def strip_top(self):
+        n = len(self.rows)
+        L = self.L
+        if n:
+            return self.content_top() + n * (self.p(L["row_h"]) + self.p(L["gap"]))
+        return self.content_top() + self.p(130)
+
+    def strip_h(self):
+        return self.p(40) if self.cfg["hidden"] else 0
+
     def window_height(self):
         n = len(self.rows)
         L = self.L
@@ -2316,7 +3455,44 @@ class App(tk.Tk):
             h += n * self.p(L["row_h"]) + (n - 1) * self.p(L["gap"]) + self.p(PAD)
         else:
             h += self.p(130)
+        if self.cfg["hidden"]:      # the "Hidden" strip at the bottom
+            h += self.strip_h() + (self.p(L["gap"]) if n else 0)
         return h
+
+    def hide_badge(self, i):
+        """The small (-) badge on the app icon's corner of a card, shown while you point at the card."""
+        L = self.L
+        ts = self.p(L["icon"])
+        tx = self.p(PAD + L["icon_x"])
+        ty = self.row_top(i) + (self.p(L["row_h"]) - ts) // 2
+        return tx + self.p(1), ty + self.p(1), self.p(9)
+
+    def hidden_chips(self):
+        """Chips in the 'Hidden' strip: one per hidden program that is playing sound right now
+        (click = show it again), and one that lists everything that is hidden."""
+        p = self.p
+        top = self.strip_top()
+        y0, y1 = top + p(6), top + p(34)
+        f = font("semi", p(12))
+        x = p(PAD) + p(14) + int(font("semi", p(11)).getlength("HIDDEN")) + p(12)
+        right = self.W - p(PAD)
+        out = []
+        n_all = len(self.cfg["hidden"])
+        last = ("hiddenpanel", None, f"All hidden ({n_all})")
+        last_w = int(f.getlength(last[2])) + p(24)
+        live = [k for k in self.hidden_live if k in self.cfg["hidden"]]
+        for i, k in enumerate(live):
+            label = pretty_name(k)
+            w = p(26) + int(f.getlength(label)) + p(12)
+            if x + w + p(6) + last_w > right:
+                more = len(live) - i
+                last = ("hiddenpanel", None, f"+{more} more")
+                last_w = int(f.getlength(last[2])) + p(24)
+                break
+            out.append((x, y0, x + w, y1, "unhide", k, label))
+            x += w + p(6)
+        out.append((x, y0, x + last_w, y1) + last)
+        return out
 
     def background(self, h):
         bg = self.bg_cache.get(h)
@@ -2335,6 +3511,7 @@ class App(tk.Tk):
         self.bg = self.background(h)
         # the background behind the waves
         self.wave_base = self.bg.crop((0, 0, self.W, self.hh)).convert("RGB")
+        self.still_drawn = False
 
     def cached(self, key, fn):
         """Small cache of finished pieces of the window. The most recently used are kept, the
@@ -2351,7 +3528,7 @@ class App(tk.Tk):
 
     def header_tile(self):
         p, W, L = self.p, self.W, self.L
-        n = len(self.rows) - (1 if self.rows and self.rows[0]["key"] == "__master__" else 0)
+        n = sum(1 for r in self.rows if r["key"] not in ("__master__", "__mic__"))
         prof = self.cfg.get("profile")
         hov = self.hover if self.hover and self.hover[0] in ("outfitbtn", "devbtn", "profbtn", "menubtn") else None
         dev = short_device(self.device_name, 18 if L["compact"] else 26)
@@ -2461,6 +3638,55 @@ class App(tk.Tk):
 
         return self.cached(key, build)
 
+    def strip_tile(self):
+        """The 'Hidden' strip below the cards."""
+        p, W = self.p, self.W
+        chips = self.hidden_chips()
+        top = self.strip_top()
+        hov = self.hover if self.hover and self.hover[0] in ("unhide", "hiddenpanel") else None
+        key = ("strip", W, tuple(c[5] or c[6] for c in chips), hov, tuple(c[6] for c in chips))
+
+        def build():
+            h = self.strip_h()
+            big = Image.new("RGBA", (W * SS, h * SS), (0, 0, 0, 0))
+            d = ImageDraw.Draw(big)
+            d.rounded_rectangle((p(PAD) * SS, 0, (W - p(PAD)) * SS, h * SS - 1), radius=p(14) * SS,
+                                fill=(20, 21, 26, 200))
+            for x0, y0, x1, y1, kind, k, label in chips:
+                y0, y1 = y0 - top, y1 - top
+                on = hov == (kind, k)
+                d.rounded_rectangle((x0 * SS, y0 * SS, x1 * SS, y1 * SS), radius=(y1 - y0) * SS // 2,
+                                    fill=(70, 72, 84, 255) if on else (40, 41, 49, 255))
+                if kind == "unhide" and self.icons.get(k) is None:
+                    cx, cy, rr = x0 + p(15), (y0 + y1) / 2, p(9)
+                    if k in ("__master__", "__mic__", "__system__"):
+                        col = app_color(k)
+                    else:
+                        col = app_color(k)
+                    d.ellipse(((cx - rr) * SS, (cy - rr) * SS, (cx + rr) * SS, (cy + rr) * SS), fill=col)
+            img = big.reduce(SS)
+            t = ImageDraw.Draw(img)
+            t.text((p(PAD) + p(14), h / 2), "HIDDEN", font=font("semi", p(11)), fill=SUB, anchor="lm")
+            f = font("semi", p(12))
+            for x0, y0, x1, y1, kind, k, label in chips:
+                y0, y1 = y0 - top, y1 - top
+                cy = (y0 + y1) / 2
+                if kind == "unhide":
+                    ic = self.icons.get(k)
+                    if ic is not None:
+                        s_ = p(18)
+                        img.alpha_composite(ic.resize((s_, s_), LANCZOS), (int(x0 + p(6)), int(cy - s_ / 2)))
+                    elif k == "__mic__":
+                        pass
+                    else:
+                        t.text((x0 + p(15), cy), pretty_name(k)[:1], font=font("semi", p(10)), fill=TEXT,
+                               anchor="mm")
+                    t.text((x0 + p(26), cy), label, font=f, fill=TEXT, anchor="lm")
+                else:
+                    t.text(((x0 + x1) / 2, cy), label, font=f, fill=PINK, anchor="mm")
+            return img
+        return self.cached(key, build)
+
     def icon_tile(self, key, size, muted):
         """The app icon (or letter), ready to paste in, at the right size."""
         def build():
@@ -2477,11 +3703,12 @@ class App(tk.Tk):
 
     def row_tile(self, i, r):
         p, W, L = self.p, self.W, self.L
-        active = self.hover in (("row", i), ("mute", i)) or self.drag == i
+        active = self.hover in (("row", i), ("mute", i), ("hidebtn", i)) or self.drag == i
         hm = self.hover == ("mute", i)
+        hb = self.hover == ("hidebtn", i)
         has_icon = self.icons.get(r["key"]) is not None
         ducked = self.duck_amt < 0.98 and category(r["key"]) == "music"
-        key = ("row", W, r["key"], r["vol"], r["muted"], active, hm, has_icon, ducked and round(self.duck_amt, 2))
+        key = ("row", W, r["key"], r["vol"], r["muted"], active, hm, hb, has_icon, ducked and round(self.duck_amt, 2))
 
         def build():
             M = p(MARGIN)
@@ -2504,7 +3731,10 @@ class App(tk.Tk):
             tx, ty = p(PAD + L["icon_x"]), M + (RH - ts) // 2
             tile_col = TILE if has_icon else (DIM if muted else app_color(r["key"]))
             d.rounded_rectangle(sx((tx, ty, tx + ts, ty + ts)), radius=p(L["icon"] * 0.27) * SS, fill=tile_col)
-            if r["key"] in ("__master__", "__system__") and not has_icon:
+            if r["key"] == "__mic__":
+                draw_panel_icon(d, (tx + ts / 2) * SS, (ty + ts / 2) * SS, ts * 0.5 * SS, "voice", WHITE,
+                                max(2, round(ts * 0.07 * SS)))
+            elif r["key"] in ("__master__", "__system__") and not has_icon:
                 draw_speaker(d, (tx + ts / 2) * SS, (ty + ts / 2) * SS, ts * 0.55 * SS, WHITE)
 
             # slider
@@ -2528,8 +3758,16 @@ class App(tk.Tk):
             mx, my = W - p(PAD + L["mute_x"]), M + RH / 2
             mr = p(L["mute_r"])
             d.ellipse(sx((mx - mr, my - mr, mx + mr, my + mr)), fill=WHITE if hm else BTN)
-            draw_speaker(d, (mx - p(2)) * SS, my * SS, mr * 1.05 * SS, DARK if hm else WHITE,
-                         muted=muted, xcolor=MUTE_ORANGE)
+            if r["key"] == "__mic__":   # microphone, crossed out when muted
+                draw_panel_icon(d, mx * SS, my * SS, mr * 1.05 * SS, "voice", DARK if hm else WHITE,
+                                max(2, round(mr * 0.13 * SS)))
+                if muted:
+                    w_ = max(3, round(mr * 0.2 * SS))
+                    d.line(((mx - mr * 0.55) * SS, (my - mr * 0.55) * SS, (mx + mr * 0.55) * SS,
+                            (my + mr * 0.55) * SS), fill=MUTE_ORANGE, width=w_)
+            else:
+                draw_speaker(d, (mx - p(2)) * SS, my * SS, mr * 1.05 * SS, DARK if hm else WHITE,
+                             muted=muted, xcolor=MUTE_ORANGE)
 
             img = big.reduce(SS)
 
@@ -2549,8 +3787,20 @@ class App(tk.Tk):
                 if ic is not None:
                     img.alpha_composite(ic, (tx + (ts - isz) // 2, ty + (ts - isz) // 2))
 
+            if active and self.drag != i:      # the (-) badge: hide this card
+                bx, by, br = self.hide_badge(i)
+                by -= self.row_top(i) - M
+                bs = Image.new("RGBA", ((2 * br + 4) * SS, (2 * br + 4) * SS), (0, 0, 0, 0))
+                bd = ImageDraw.Draw(bs)
+                c = (br + 2) * SS
+                bd.ellipse((c - br * SS, c - br * SS, c + br * SS, c + br * SS),
+                           fill=WHITE if hb else (70, 72, 84, 255), outline=(14, 15, 19, 255), width=max(2, SS * 2))
+                bd.line((c - br * SS * 0.45, c, c + br * SS * 0.45, c), fill=DARK if hb else WHITE,
+                        width=max(2, round(br * SS * 0.22)))
+                bs = bs.reduce(SS)
+                img.alpha_composite(bs, (int(bx - br - 2), int(by - br - 2)))
             t = ImageDraw.Draw(img)
-            if not has_icon and r["key"] not in ("__master__", "__system__"):
+            if not has_icon and r["key"] not in ("__master__", "__system__", "__mic__"):
                 t.text((tx + ts / 2, ty + ts / 2), pretty_name(r["key"])[:1],
                        font=font("semi", int(ts * 0.43)), fill=TEXT, anchor="mm")
             name_font = font("semi", p(L["name_font"]))
@@ -2582,6 +3832,8 @@ class App(tk.Tk):
         if active:
             i, r = active
             frame.alpha_composite(self.row_tile(i, r), (0, self.row_top(i) - M))
+        if self.cfg["hidden"]:
+            frame.alpha_composite(self.strip_tile(), (0, self.strip_top()))
         if not self.rows:
             ImageDraw.Draw(frame).text(
                 (self.W / 2, self.content_top() + self.p(60)),
@@ -2604,12 +3856,13 @@ class App(tk.Tk):
         Z = WAVE_SS
         cy = self.p(WAVE_CY)
         full = self.p(WAVE_AMP)
-        beat = self.beat
+        move = 1.0 - self.still
+        beat = self.beat * move
         S = self.S
         waves = []
         for k, (speed, cycles, strength, band) in enumerate(WAVES):
             col = tuple(int(c) for c in self.wave_cols[k])
-            e = self.band_vals[band]
+            e = self.band_vals[band] * move
             amp = full * strength * (0.06 + 0.94 * e) * (1 + 0.35 * beat)
             ph = self.phases[k]
             ripple = 0.22 * e if band >= 2 else 0.0   # mid/treble get a little extra ripple
@@ -2726,10 +3979,17 @@ class App(tk.Tk):
             for j in range(3):
                 c[j] += (tc[j] - c[j]) * fade
 
+        # watch mode: the waves settle down and stand still (it's film time)
+        target_still = 1.0 if self.state_name == "watch" else 0.0
+        self.still += (target_still - self.still) * min(1.0, dt * 1.5)
+        if self.still > 0.995:
+            self.still = 1.0
+
         # the waves move faster the more happens in their band, and jolt on bass hits
+        move = 1.0 - self.still
         for k, (speed, _, _, band) in enumerate(WAVES):
             e = self.band_vals[band]
-            self.phases[k] += dt * speed * (0.35 + 2.6 * e + 2.2 * self.beat)
+            self.phases[k] += dt * speed * (0.35 + 2.6 * e + 2.2 * self.beat) * move
 
         np_ = self.now_playing
         sig = (getattr(np_, "display", None), getattr(np_, "paused", False), self.shown_bpm())
@@ -2739,8 +3999,14 @@ class App(tk.Tk):
             if shown_before != (sig[0] is not None):
                 self.resize()
             self.render()
-        self.draw_header()
-        self.after(WAVE_MS if self.level > 0.02 else WAVE_MS * 2, self.waves)
+        t0 = time.perf_counter()
+        if self.still < 1.0 or not self.still_drawn:      # standing still: no need to redraw
+            self.draw_header()
+            self.still_drawn = self.still >= 1.0
+        self.wave_stats[0] += 1
+        self.wave_stats[1] += time.perf_counter() - t0
+        slow = 2 if self.cfg.get("low_power") else 1      # low power mode: half the frame rate
+        self.after((WAVE_MS if self.level > 0.02 else WAVE_MS * 2) * slow, self.waves)
 
     def pick_palette(self, title):
         if title:
@@ -2754,17 +4020,21 @@ class App(tk.Tk):
             self.after_idle(self.build_sprites)
 
     # -- the buddy's outfit
+    def is_birthday(self):
+        return bool(self.cfg.get("birthday")) and time.strftime("%m-%d") == self.cfg.get("birthday")
+
     def current_style(self):
         acc = self.cfg.get("outfit", "auto")
         if acc not in OUTFITS or acc == "auto":
-            acc = season_outfit()
+            acc = "party" if self.is_birthday() else season_outfit()
         if self.cfg.get("dress_follow", True):
             c = PALETTES[self.palette_i][0]
             return {"acc": acc, "D": c, "d": tuple(int(v * 0.66) for v in c)}
         return {"acc": acc, "D": PAL["D"], "d": PAL["d"]}
 
     def build_sprites(self):
-        """Draws all frames of the buddy in the right outfit (cached, so each combination is drawn once)."""
+        """All frames of the buddy in the right outfit. Each frame is drawn the first time it is
+        shown and kept (per outfit/colour), so switching costs nothing up front."""
         st = self.current_style()
         key = (st["acc"], tuple(st["D"]))
         sets = self.sprite_cache.get(key)
@@ -2774,20 +4044,23 @@ class App(tk.Tk):
             def sprite(f):
                 return ImageTk.PhotoImage(make_sprite(f, st).resize((SPRITE_W * sc, SPRITE_H * sc), NEAREST))
 
-            def many(frames, blink=False):
-                normal = [sprite(f) for f in frames]
-                return (normal, [sprite(dict(f, eyes="closed")) for f in frames]) if blink else normal
+            def lazy(frames):
+                return LazyFrames(frames, sprite)
             sets = {
-                "moves": {name: many(frames, True) for name, frames in DANCE_MOVES.items()},
-                "idle": many(IDLE_FRAMES), "wave": many(WAVE_FRAMES),
-                "surprise": many(SURPRISE_FRAMES), "sleep": many(SLEEP_FRAMES),
+                # every move with open eyes, happy eyes and blinking
+                "moves": {name: {eyes: lazy([with_eyes(f, eyes) for f in frames])
+                                 for eyes in ("open", "happy", "closed")}
+                          for name, frames in DANCE_MOVES.items()},
+                "idle": lazy(IDLE_FRAMES), "wave": lazy(WAVE_FRAMES), "ears": lazy(EARS_FRAMES),
+                "surprise": lazy(SURPRISE_FRAMES), "sleep": lazy(SLEEP_FRAMES),
             }
-            if len(self.sprite_cache) >= 4:      # ~3.5 MB per outfit/colour – keep the latest few
+            if len(self.sprite_cache) >= 4:
                 del self.sprite_cache[next(iter(self.sprite_cache))]
             self.sprite_cache[key] = sets
         self.moves = sets["moves"]
         self.idle_sprites = sets["idle"]
         self.wave_sprites = sets["wave"]
+        self.ears_sprites = sets["ears"]
         self.surprise_sprites = sets["surprise"]
         self.sleep_sprites = sets["sleep"]
 
@@ -2798,7 +4071,9 @@ class App(tk.Tk):
         self.render()
         self.react = ("wave", time.time() + 1.4)
         self.say({"santa": "Ho ho ho!", "witch": "Boo! \u266a", "cat": "Meow!",
-                  "sunglasses": "Cool, huh?", "headphones": "Now I can hear\neverything! \u266a"}.get(
+                  "sunglasses": "Cool, huh?", "headphones": "Now I can hear\neverything! \u266a",
+                  "crown": "Call me\nQueen Mixie!", "bunny": "Hop hop! \u266a", "beanie": "Nice and cosy!",
+                  "flowers": "I feel so\npretty! \u266a", "cap": "Yo! \u266a", "horns": "Hehe, a little\nbit naughty!"}.get(
             self.current_style()["acc"], "Thanks! \u266a"), 1.8)
 
     def toggle_dress(self):
@@ -2808,127 +4083,165 @@ class App(tk.Tk):
         self.render()
 
     # -- menus
-    def popup_at(self, menu, box):
-        x = self.canvas.winfo_rootx() + int(box[0])
-        y = self.canvas.winfo_rooty() + int(box[3]) + self.p(4)
-        try:
-            menu.tk_popup(x, y)
-        finally:
-            menu.grab_release()
-
-    def new_menu(self):
-        return tk.Menu(self, tearoff=0, bg="#1b1c21", fg="#ffffff", activebackground="#ffffff",
-                       activeforeground="#0e0f13", selectcolor="#ff8cc6", bd=0, font=("Segoe UI", 10))
+    def open_panel(self, btn, items, width=300):
+        if getattr(self, "panel", None) is not None and not self.panel.closed:
+            self.panel.close()
+        self.panel = Panel(self, self.header_buttons()[btn], items, width)
 
     def open_main_menu(self):
-        m = self.new_menu()
-        self._menu_vars = []
-
-        def check(label, value, cmd, state="normal"):
-            v = tk.BooleanVar(value=bool(value))
-            self._menu_vars.append(v)
-            m.add_checkbutton(label=label, variable=v, command=cmd, state=state)
-
-        check("Always on top", self.cfg["topmost"], self.toggle_topmost)
-        check("Compact mode", self.cfg["compact"], self.toggle_compact)
-        check("Minimize to the tray (by the clock)", self.cfg["tray"], self.toggle_tray,
-              "normal" if self.tray and self.tray.icon else "disabled")
-        m.add_separator()
-
-        check("Lower the music when someone talks on Discord", self.cfg["duck"]["on"], self.toggle_duck)
-        lvl_menu = self.new_menu()
-        lv = tk.IntVar(value=self.cfg["duck"]["level"])
-        self._menu_vars.append(lv)
-        for pct, label in ((15, "A lot (15 %)"), (30, "Medium (30 %)"), (50, "A little (50 %)")):
-            lvl_menu.add_radiobutton(label=label, value=pct, variable=lv,
-                                     command=lambda pct=pct: self.set_duck_level(pct))
-        m.add_cascade(label="How much the music is lowered", menu=lvl_menu)
-        m.add_separator()
-
-        check("Hotkeys", self.cfg["hotkeys"], self.toggle_hotkeys)
-        m.add_command(label="Show hotkeys\u2026", command=self.show_hotkeys)
-        m.add_separator()
-        n = len(self.cfg["hidden"])
+        """The settings panel behind the ⋯ button."""
+        cfg = self.cfg
+        tray_ok = bool(self.tray and self.tray.icon)
+        items = [
+            {"k": "head", "t": "Window"},
+            {"k": "toggle", "t": "Always on top", "icon": "pin",
+             "get": lambda: cfg["topmost"], "set": self.toggle_topmost},
+            {"k": "toggle", "t": "Compact mode", "icon": "compact",
+             "get": lambda: cfg["compact"], "set": self.toggle_compact},
+            {"k": "toggle", "t": "Minimize to the tray", "icon": "tray", "on": tray_ok,
+             "get": lambda: cfg["tray"] and tray_ok, "set": self.toggle_tray},
+            {"k": "toggle", "t": "Start with Windows", "icon": "power", "on": sys.platform == "win32",
+             "get": lambda: bool(autostart_get()), "set": self.toggle_autostart},
+            {"k": "toggle", "t": "Low power mode (slower PCs)", "icon": "leaf",
+             "get": lambda: cfg.get("low_power", False), "set": self.toggle_low_power},
+            {"k": "head", "t": "Microphone and voice chat"},
+            {"k": "toggle", "t": "Show the microphone", "icon": "voice", "on": self.mic_ctl is not None,
+             "get": lambda: cfg.get("mic_row", True) and self.mic_ctl is not None, "set": self.toggle_mic_row},
+            {"k": "toggle", "t": "Lower music when people talk", "icon": "voice",
+             "get": lambda: cfg["duck"]["on"], "set": self.toggle_duck},
+            {"k": "seg", "t": "How much lower", "opts": [(15, "A lot"), (30, "Medium"), (50, "A little")],
+             "get": lambda: cfg["duck"]["level"], "set": self.set_duck_level},
+            {"k": "head", "t": "Hotkeys"},
+            {"k": "toggle", "t": "Hotkeys (work in games too)", "icon": "keys",
+             "get": lambda: cfg["hotkeys"], "set": self.toggle_hotkeys},
+            {"k": "act", "t": "Show hotkeys", "icon": "keys", "hint": "\u203a", "do": self.show_hotkeys},
+            {"k": "sep"},
+        ]
+        n = len(cfg["hidden"])
         if n:
-            m.add_command(label=f"Show hidden programs ({n})", command=self.unhide_all)
+            items.append({"k": "act", "t": "Hidden programs", "icon": "eye", "hint": str(n),
+                          "do": self.open_hidden_panel})
         if sys.platform == "win32":
-            m.add_command(label="Create desktop shortcut", command=self.make_shortcut)
-        m.add_separator()
-        m.add_command(label="About Mixie", command=self.show_about)
-        m.add_command(label="Quit", command=self.on_close)
-        self.popup_at(m, self.header_buttons()["menubtn"])
-
-    def menu_icon(self, key, build):
-        img = self.menu_icons.get(key)
-        if img is None:
-            if len(self.menu_icons) > 60:
-                self.menu_icons.clear()
-            img = self.menu_icons[key] = ImageTk.PhotoImage(build())
-        return img
+            items.append({"k": "act", "t": "Create desktop shortcut", "icon": "link", "do": self.make_shortcut})
+        items += [
+            {"k": "head", "t": "Mixie"},
+            {"k": "toggle", "t": "Watch mode (naps during films)", "icon": "tv",
+             "get": lambda: cfg.get("watch_mode", True), "set": self.toggle_watch},
+            {"k": "act", "t": "Your birthday", "icon": "cake", "hint": self.birthday_hint(), "do": self.set_birthday},
+            {"k": "head", "t": "Help"},
+            {"k": "toggle", "t": "Tell me about new versions", "icon": "update",
+             "get": lambda: cfg.get("update_check", True), "set": self.toggle_update_check},
+            {"k": "act", "t": "Check for updates now", "icon": "update", "do": lambda: self.check_updates(True)},
+            {"k": "toggle", "t": "Debug mode", "icon": "bug",
+             "get": lambda: cfg.get("debug", False), "set": self.toggle_debug},
+            {"k": "act", "t": "Open Mixie's folder (logs)", "icon": "folder", "do": self.open_data_folder},
+            {"k": "act", "t": "About Mixie", "icon": "info", "hint": APP_VERSION, "do": self.show_about},
+            {"k": "act", "t": "Quit Mixie", "icon": "power", "danger": True, "do": self.on_close},
+            {"k": "foot", "t": f"Mixie {APP_VERSION}  \u00b7  made by {AUTHOR}"},
+        ]
+        self.open_panel("menubtn", items, 336)
 
     def open_outfit_menu(self):
-        m = self.new_menu()
-        ov = tk.StringVar(value=self.cfg.get("outfit", "auto"))
-        self._menu_vars = [ov]
+        """A grid with Mixie in every outfit."""
         st = self.current_style()
-        u = max(1, round(self.S))
+        tiles = []
         for acc in OUTFITS:
             shown = season_outfit() if acc == "auto" else acc
             look = dict(st, acc=shown)
-            img = self.menu_icon(("outfit", shown, tuple(st["D"]), acc == "auto"),
-                                 lambda look=look, auto=acc == "auto": menu_tile(outfit_head(look, u), auto, u))
-            m.add_radiobutton(label="  " + OUTFIT_NAMES[acc], value=acc, variable=ov, image=img, compound="left",
-                              command=lambda acc=acc: self.set_outfit(acc))
-        m.add_separator()
-        fv = tk.BooleanVar(value=self.cfg.get("dress_follow", True))
-        self._menu_vars.append(fv)
-        m.add_checkbutton(label="Dress follows the wave colours", variable=fv, command=self.toggle_dress)
-        self.popup_at(m, self.header_buttons()["outfitbtn"])
+            head = outfit_head(look, 1)
+            k = max(1, round(42 * self.S / max(head.width, head.height)))
+            img = head.resize((head.width * k, head.height * k), NEAREST)
+            if acc == "auto":   # small star in the corner = picked by season
+                big = Image.new("RGBA", (img.width * 4, img.height * 4), (0, 0, 0, 0))
+                r = round(5 * self.S) * 4
+                draw_panel_icon(ImageDraw.Draw(big), big.width - r, r, 2 * r, "star", (255, 216, 74, 255), 1)
+                img = img.copy()
+                img.alpha_composite(big.reduce(4))
+            tiles.append((acc, img, OUTFIT_NAMES[acc]))
+        items = [
+            {"k": "head", "t": "Mixie's outfit"},
+            {"k": "tiles", "tiles": tiles, "cols": 4,
+             "get": lambda: self.cfg.get("outfit", "auto"), "set": self.set_outfit},
+            {"k": "sep"},
+            {"k": "toggle", "t": "Dress follows the wave colours", "icon": "star",
+             "get": lambda: self.cfg.get("dress_follow", True), "set": self.toggle_dress},
+        ]
+        self.open_panel("outfitbtn", items, 340)
 
     def open_device_menu(self):
-        m = self.new_menu()
+        """Where the sound goes: a panel like the others, one row per device."""
         try:
             devs = output_devices()
         except Exception as e:
             devs = []
             log_error(f"Audio devices: {e}")
-        dv = tk.StringVar(value=next((d for d, _, default in devs if default), ""))
-        self._menu_vars = [dv]
-        u = max(1, round(self.S))
-        for did, name, _ in devs:
-            kind = device_kind(name)
-            img = self.menu_icon(("dev", kind), lambda kind=kind: device_tile(kind, u))
-            m.add_radiobutton(label="  " + name, value=did, variable=dv, image=img, compound="left",
-                              command=lambda did=did, name=name: self.set_device(did, name))
+        items = [{"k": "head", "t": "Play sound on"}]
+        for did, name, default in devs:
+            items.append({"k": "act", "t": nice_device(name), "icon": "dev:" + device_kind(name),
+                          "tick": default,
+                          "do": lambda did=did, name=name: self.set_device(did, name)})
         if not devs:
-            m.add_command(label="No audio devices found", state="disabled")
-        self.popup_at(m, self.header_buttons()["devbtn"])
+            items.append({"k": "act", "t": "No audio devices found", "on": False, "do": lambda: None})
+        items += [{"k": "sep"},
+                  {"k": "act", "t": "Windows sound settings", "icon": "link", "do": self.open_sound_settings}]
+        self.open_panel("devbtn", items, 330)
+
+    def open_sound_settings(self):
+        try:
+            os.startfile("ms-settings:sound")
+        except Exception:
+            pass
+
+    def dialog(self, title, text, buttons=("OK",), width=400):
+        """Shows a message over the Mixie window and waits for an answer (the button's label)."""
+        if getattr(self, "panel", None) is not None and not self.panel.closed:
+            self.panel.close()
+        dlg = Dialog(self, title, text, buttons, width)
+        self.wait_window(dlg)
+        return dlg.result
+
+    def ask_text(self, title, text, value="", ok="Save"):
+        """Asks for a line of text. Returns it, or None when cancelled."""
+        if getattr(self, "panel", None) is not None and not self.panel.closed:
+            self.panel.close()
+        dlg = Dialog(self, title, text, (ok, "Cancel"), 400, entry=value)
+        self.wait_window(dlg)
+        return dlg.entry_value if dlg.result == ok else None
 
     def show_about(self):
-        if messagebox.askyesno(
-                f"About {APP_NAME}",
-                f"{APP_NAME} {APP_VERSION}\n"
+        if self.dialog(
+                f"{APP_NAME} {APP_VERSION}",
                 "A per-app volume mixer with a dancing pixel buddy.\n\n"
-                f"Made by {AUTHOR}\n{REPO_URL}\n\n"
-                "Open the project page on GitHub?", parent=self):
+                f"Made by {AUTHOR}\n{REPO_URL}",
+                ("Open on GitHub", "Close")) == "Open on GitHub":
             import webbrowser
             webbrowser.open(REPO_URL)
 
     def open_profile_menu(self):
-        m = self.new_menu()
-        pv = tk.StringVar(value=self.cfg.get("profile") or "")
-        self._menu_vars = [pv]
-        for name in PROFILE_NAMES:
-            hint = " (custom)" if name in self.cfg["profiles"] else ""
-            m.add_radiobutton(label=f"{name}{hint}", value=name, variable=pv,
-                              command=lambda name=name: self.apply_profile(name))
-        m.add_separator()
-        for name in PROFILE_NAMES:
-            m.add_command(label=f"Save current volumes as \"{name}\"",
-                          command=lambda name=name: self.save_profile(name))
-        if self.cfg["profiles"]:
-            m.add_command(label="Reset profiles", command=self.reset_profiles)
-        self.popup_at(m, self.header_buttons()["profbtn"])
+        cur = self.cfg.get("profile")
+        items = [{"k": "head", "t": "Profiles"}]
+        hints = {"Game": "Ctrl+Alt+1", "Music": "Ctrl+Alt+2"}
+        for name in self.all_profiles():
+            items.append({"k": "act", "t": name + (" (custom)" if name in PROFILE_NAMES and name in self.cfg["profiles"]
+                                                   else ""),
+                          "icon": "check" if name == cur else "dot", "hint": hints.get(name, ""),
+                          "do": lambda name=name: self.apply_profile(name)})
+        items.append({"k": "sep"})
+        if cur:
+            items.append({"k": "act", "t": f"Save current volumes as \"{cur}\"", "icon": "plus",
+                          "do": lambda: self.save_profile(cur)})
+        items.append({"k": "act", "t": "New profile from current volumes", "icon": "plus", "do": self.new_profile})
+        if cur and cur in self.cfg.get("my_profiles", []):
+            items.append({"k": "act", "t": f"Delete \"{cur}\"", "icon": "trash", "danger": True,
+                          "do": lambda: self.delete_profile(cur)})
+        elif self.cfg["profiles"]:
+            items.append({"k": "act", "t": "Reset Game and Music", "icon": "trash", "do": self.reset_profiles})
+        items += [
+            {"k": "sep"},
+            {"k": "toggle", "t": "Game profile when a game is open", "icon": "keys",
+             "get": lambda: self.cfg.get("auto_profile", False), "set": self.toggle_auto_profile},
+        ]
+        self.open_panel("profbtn", items, 340)
 
     # -- profiles
     def apply_profile(self, name):
@@ -2949,14 +4262,15 @@ class App(tk.Tk):
         self.say("Game mode!" if name == "Game" else "Music mode! \u266a", 1.6)
 
     def save_profile(self, name):
-        self.cfg["profiles"][name] = {r["key"]: r["vol"] for r in self.rows if r["key"] != "__master__"}
+        self.cfg["profiles"][name] = {r["key"]: r["vol"] for r in self.rows if r["key"] not in ("__master__", "__mic__")}
         self.cfg["profile"] = name
         save_config(self.cfg)
         self.render()
         self.say(f"Saved \"{name}\"!", 1.6)
 
     def reset_profiles(self):
-        self.cfg["profiles"] = {}
+        for name in PROFILE_NAMES:
+            self.cfg["profiles"].pop(name, None)
         save_config(self.cfg)
         self.say("Profiles have\nbeen reset", 1.6)
 
@@ -2966,7 +4280,7 @@ class App(tk.Tk):
             set_output_device(dev_id)
         except Exception as e:
             log_error(f"Switch audio device: {e}")
-            messagebox.showerror(APP_NAME, f"Could not switch audio device:\n{e}", parent=self)
+            self.dialog("Audio device", f"Could not switch audio device:\n{e}")
             return
         self.device_name = name
         m = find_master()
@@ -3048,7 +4362,7 @@ class App(tk.Tk):
             text += "\n\nTaken by another program (not working):\n" + "\n".join(failed)
         if not self.cfg["hotkeys"]:
             text += "\n\n(Hotkeys are switched off right now – turn them on in the menu.)"
-        messagebox.showinfo(f"{APP_NAME} \u2013 hotkeys", text, parent=self)
+        self.dialog("Hotkeys", text, width=470)
 
     def music_row(self):
         best = None
@@ -3073,6 +4387,10 @@ class App(tk.Tk):
                     self.do_action(action)
             elif kind == "show":
                 self.show_window()
+            elif kind == "update":
+                self.offer_update(ev[1], ev[2], ev[3])
+            elif kind == "say":
+                self.say(ev[1], ev[2])
             elif kind == "quit":
                 self.on_close()
                 return
@@ -3103,6 +4421,12 @@ class App(tk.Tk):
                 self.toggle_mute(i)
                 r = self.rows[i]
                 self.say(f"{pretty_name(r['key'])}: " + ("muted" if r["muted"] else "on"), 1.2)
+        elif kind == "mute_mic":
+            self.toggle_mic()
+        elif kind == "debug":
+            self.toggle_debug()
+        elif kind == "toggle_window":
+            self.toggle_window()
         elif kind == "media":
             self.media_action(action[1])
         elif kind == "profile":
@@ -3199,110 +4523,113 @@ class App(tk.Tk):
         return self.sprite_x, y, self.sprite_x + self.sprite_w, y + self.sprite_h
 
     def beat_clock(self):
-        """(seconds per beat, time of a beat) when the tempo of the music is known, else None.
-        Very fast songs are danced in half time and very slow ones in double time."""
-        an = self.analyzer
-        if not (an.bpm and an.tempo_conf > 0.35 and an.beat_len > 0 and time.time() - an.updated < 0.5):
+        """(seconds per beat, time of a beat) while she follows the tempo of the music, else None."""
+        c = self.clock
+        if not (self.dancing and c.locked):
             return None
-        L = an.beat_len
-        if 60.0 / L > 150:
-            L *= 2
-        elif 60.0 / L < 75:
-            L /= 2
-        return L, an.beat_at
+        return c.L, time.time() - c.frac() * c.L
 
-    def grid(self, now, at, unit):
-        """Slot number on the beat grid (counted from a fixed start, so it only ever goes up)
-        and the time the next slot starts."""
-        off = (at - self.started_t) % unit
-        k = math.floor((now - self.started_t - off) / unit + 0.02)
-        return k, self.started_t + off + (k + 1) * unit
+    def free_beat(self):
+        """Seconds per beat when the tempo is unknown: follows how intense the music is."""
+        return {"calm": 0.8, "dance": 0.56 - 0.12 * self.band_vals[0], "hype": 0.44}[self.mode]
 
     def dance(self):
+        """Picks the buddy's picture. Called ~30 times a second; only changes the image when
+        the frame really changes."""
         now = time.time()
+        dt = min(0.25, now - self.last_tick)
+        self.last_tick = now
         silence = now - self.last_sound
+        hour = time.localtime().tm_hour
+        late = hour >= 23 or hour < 5
+        sleep_after = 20 if late else SLEEP_AFTER       # late at night she gets sleepy sooner
+        # Watch mode: a film, series or stream with no steady beat -> she curls up and watches (sleeps)
+        if self.clock.locked:
+            self.last_locked_t = now
+        video = getattr(self.now_playing, "video", False)
+        self.video_since = (self.video_since or now) if video else None
+        watching = (self.cfg.get("watch_mode", True) and video and now - self.video_since > 3
+                    and now - self.last_locked_t > 12)
         if silence < 2.0:
-            state = "dance"
-        elif silence > SLEEP_AFTER and now - self.woken_at > SLEEP_AFTER:
+            state = "watch" if watching else "dance"
+        elif silence > sleep_after and now - self.woken_at > sleep_after:
             state = "sleep"
         else:
             state = "idle"
         if state != self.state_name:
-            if state == "dance" and self.state_name == "sleep":
+            if state == "dance" and self.state_name in ("sleep", "watch"):
                 self.react = ("surprise", now + 0.7)
                 self.say(self.pick_line(LINES_BACK, "back"), 2.2)
                 self.burst("star", 6)
+            elif state == "watch" and now - self.watch_said > 90:
+                self.watch_said = now
+                self.say("Movie time...\nwake me for music!", 2.6)
             self.state_name = state
-            self.dance_i = self.idle_i = 0
+            self.state_t = now
+            self.move = None
         self.dancing = state == "dance"
+        if late and state == "idle" and now - self.late_t > 900 and silence > 8:
+            self.late_t = now
+            self.say("*yawn*\nIt's getting late...", 2.6)
 
         # how intense is the music? (bass counts most) -> calm / normal / hype
         b = self.band_vals
         e = 0.6 * b[0] + 0.4 * (sum(b) / 4)
-        self.energy += (e - self.energy) * 0.25
+        self.energy += (e - self.energy) * min(1.0, dt / 0.9)
         if self.mode != "hype" and self.energy > 0.66:
             self.mode = "hype"
         elif self.mode != "calm" and self.energy < 0.26:
             self.mode = "calm"
         elif self.mode == "hype" and self.energy < 0.56 or self.mode == "calm" and self.energy > 0.34:
             self.mode = "dance"
+        self.clock.update(now, self.analyzer, silence < 2.0, self.free_beat())
+        self.check_drop(now, e)
+        self.seasonal(now, state)
+
+        # blinking: a short, natural blink every few seconds (sometimes twice)
+        if now >= self.next_blink:
+            self.blink_until = now + 0.12
+            self.next_blink = now + (0.32 if random.random() < 0.2 else random.uniform(2.6, 6.0))
+        blinking = now < self.blink_until
 
         react = self.react if self.react and self.react[1] > now else None
         self.react = react
         if react:
-            frames = self.wave_sprites if react[0] == "wave" else self.surprise_sprites
-            self.idle_i = (self.idle_i + 1) % len(frames)
-            img, delay = frames[self.idle_i], 180
+            frames = {"wave": self.wave_sprites, "ears": self.ears_sprites}.get(react[0], self.surprise_sprites)
+            img = frames[int(now / 0.18) % len(frames)]
         elif state == "dance":
             pool = MOVE_POOLS[self.mode]
-            clock = self.beat_clock()
-            if clock:
-                # Follow the tempo: every frame lands exactly on the beat grid
-                L, at = clock
-                fpb = MOVE_FPB.get(self.move, 2)
-                k, nxt = self.grid(now, at, L / fpb)
-                if k != self.last_k:
-                    self.last_k = k
-                    self.move_left -= 1
-                # switch moves on the first beat of a bar (every 4 beats)
-                if self.move not in pool or (self.move_left <= 0 and k % (fpb * 4) == 0):
-                    choices = [m for m in pool if m != self.move] or pool
-                    self.move = random.choice(choices)
-                    fpb = MOVE_FPB.get(self.move, 2)
-                    k, nxt = self.grid(now, at, L / fpb)
-                    self.last_k = k
-                    self.move_left = fpb * 4 * random.choice((2, 3, 4))   # 2-4 bars
-                normal, blink = self.moves[self.move]
-                self.dance_i = k % len(normal)
-                img = (blink if random.random() < BLINK_CHANCE else normal)[self.dance_i]
-                delay = max(15, int((nxt - now) * 1000) + 2)
-            else:
-                # tempo unknown: dance at a speed that follows the bass
-                if self.move not in pool or self.move_left <= 0:   # time for a new move
-                    choices = [m for m in pool if m != self.move] or pool
-                    self.move = random.choice(choices)
-                    self.dance_i = -1
-                    self.move_left = len(DANCE_MOVES[self.move]) * random.choice((2, 3, 4))
-                normal, blink = self.moves[self.move]
+            fpb = MOVE_FPB.get(self.move, 2)
+            k = math.floor(self.clock.now_phase() * fpb)
+            if k != self.last_k:
+                self.last_k = k
                 self.move_left -= 1
-                self.dance_i = (self.dance_i + 1) % len(normal)
-                img = (blink if random.random() < BLINK_CHANCE else normal)[self.dance_i]
-                speed = {"calm": 1.6, "dance": 1.15 - 0.4 * b[0], "hype": 0.8}[self.mode]
-                delay = int(DANCE_MS * speed)
-        elif state == "sleep":
-            self.idle_i = (self.idle_i + 1) % len(self.sleep_sprites)
-            img, delay = self.sleep_sprites[self.idle_i], SLEEP_MS
-            if now - self.last_z_t > 1.5:
+            # switch moves on the first beat of a bar (every 4 beats)
+            if self.move not in pool or (self.move_left <= 0 and k % (fpb * 4) == 0):
+                choices = [m for m in pool if m != self.move] or pool
+                self.move = random.choice(choices)
+                self.move_eyes = "happy" if random.random() < 0.35 else "open"
+                fpb = MOVE_FPB.get(self.move, 2)
+                k = math.floor(self.clock.now_phase() * fpb)
+                self.last_k = self.move_k0 = k
+                self.move_left = fpb * 4 * random.choice((2, 3, 4))   # 2-4 bars
+            sets = self.moves[self.move]
+            frames = sets["closed" if blinking else self.move_eyes]
+            self.dance_i = (k - self.move_k0) % len(frames)
+            img = frames[self.dance_i]
+        elif state in ("sleep", "watch"):
+            img = self.sleep_sprites[int((now - self.state_t) * 1000 / SLEEP_MS) % len(self.sleep_sprites)]
+            if now - self.last_z_t > (1.5 if state == "sleep" else 2.6):
                 self.last_z_t = now
                 x0, y0, x1, _ = self.girl_box()
                 self.spawn("z", (205, 220, 255), x0 + self.p(18), y0 + self.p(10) + SPRITE_TOP * self.sc,
                            vx=-self.p(14), vy=-self.p(13), life=2.8)
         else:
-            self.idle_i = (self.idle_i + 1) % len(self.idle_sprites)
-            img, delay = self.idle_sprites[self.idle_i], IDLE_MS
-        self.canvas.itemconfig(self.sprite_item, image=img)
+            img = self.idle_sprites[int((now - self.state_t) * 1000 / IDLE_MS) % len(self.idle_sprites)]
+        if img is not self.shown_img:
+            self.shown_img = img
+            self.canvas.itemconfig(self.sprite_item, image=img)
         self.update_bubble()
-        self.after(delay, self.dance)
 
     # -- effects: notes, hearts, Zzz, stars
     def fx_images(self, pattern, color):
@@ -3316,12 +4643,13 @@ class App(tk.Tk):
         return imgs
 
     def spawn(self, pattern, color, x, y, vx=0.0, vy=-30.0, life=1.4):
+        keep = pattern in ("bat", "flake")      # these keep their speed
         if len(self.fx) > 40:
             return
         imgs = self.fx_images(pattern, color)
         item = self.canvas.create_image(x, y, anchor="center", image=imgs[0], tags="fx")
         self.fx.append({"item": item, "imgs": imgs, "x": x, "y": y, "vx": vx, "vy": vy,
-                        "t": 0.0, "life": life, "i": 0, "ph": random.random() * 6.3})
+                        "t": 0.0, "life": life, "i": 0, "ph": random.random() * 6.3, "keep": keep})
         if len(self.fx) == 1:
             self.after(33, self.anim)
 
@@ -3370,7 +4698,8 @@ class App(tk.Tk):
                 continue
             f["x"] += (f["vx"] + math.sin(f["t"] * 5 + f["ph"]) * self.p(10)) * dt
             f["y"] += f["vy"] * dt
-            f["vx"] *= 0.97
+            if not f.get("keep"):
+                f["vx"] *= 0.97
             i = min(3, int((f["t"] / f["life"]) ** 1.6 * 4))
             if i != f["i"]:
                 f["i"] = i
@@ -3382,26 +4711,30 @@ class App(tk.Tk):
             self.after(33, self.anim)
 
     def bounce(self):
-        """She bounces on the bass hits (more in hype mode) and jumps when you click her."""
+        """Runs ~30 times a second: picks her picture, bobs her on the beat and makes her jump
+        when you click her. One loop for everything, so the picture and the bob never get out of step."""
         self.handle_events()
         if getattr(self, "_closing", False):
             return
+        try:
+            self.dance()
+        except Exception:
+            if not getattr(self, "_dance_err", False):   # write it down once, keep running
+                self._dance_err = True
+                log_error(traceback.format_exc())
         y = self.p(SPRITE_Y)
-        clock = self.beat_clock() if self.dancing else None
-        if clock:
-            # bob down on every beat and up in between, in time with the music
-            L, at = clock
-            now = time.time()
-            ph = ((now - at) / L) % 1.0
-            amp = {"calm": 1.5, "dance": 3.5, "hype": 6.0}[self.mode]
-            y -= self.p(amp) * math.sin(math.pi * ph)
-            beat_no, _ = self.grid(now, at, L)
-            if beat_no != self.grid_beat:
-                self.grid_beat = beat_no
-                self.spawn_note()
-        elif self.dancing:
-            amp = {"calm": 1.0, "dance": 3.0, "hype": 6.0}[self.mode]
-            y -= self.p(amp) * self.beat
+        if self.dancing and not self.react:
+            if self.clock.locked:
+                # bob down on every beat and up in between, in time with the music
+                amp = {"calm": 1.5, "dance": 3.5, "hype": 6.0}[self.mode]
+                y -= self.p(amp) * math.sin(math.pi * self.clock.frac())
+                beat_no = math.floor(self.clock.now_phase())
+                if beat_no != self.grid_beat:
+                    self.grid_beat = beat_no
+                    self.spawn_note()
+            else:
+                amp = {"calm": 1.0, "dance": 3.0, "hype": 6.0}[self.mode]
+                y -= self.p(amp) * self.beat
         if self.hop_t is not None:
             t = time.time() - self.hop_t
             if t < 0.42:
@@ -3414,7 +4747,7 @@ class App(tk.Tk):
             self.canvas.coords(self.sprite_item, self.sprite_x, y)
         bob = self.p(2) if (int(time.time() * 2.5) % 2) and self.bubble_text else 0
         self.canvas.coords(self.bubble_item, self.sprite_x - self.p(2), self.bubble_y - bob)
-        self.after(33, self.bounce)
+        self.after(50 if self.cfg.get("low_power") else 33, self.bounce)
 
     def poke_girl(self):
         now = time.time()
@@ -3474,6 +4807,15 @@ class App(tk.Tk):
             self.open_device_menu()
         elif kind == "mute":
             self.toggle_mute(h[1])
+        elif kind == "hidebtn":
+            key = self.rows[h[1]]["key"]
+            self.hover = None
+            self.hide(key)
+            self.say(f"{pretty_name(key)} hidden -\nit's at the bottom", 2.0)
+        elif kind == "unhide":
+            self.unhide(h[1])
+        elif kind == "hiddenpanel":
+            self.open_hidden_panel()
         elif kind == "row":
             self.drag = h[1]
             self.set_from_x(h[1], e.x)
@@ -3520,7 +4862,7 @@ class App(tk.Tk):
             self.render()
             if r["key"] == "__master__" and v >= 95 and time.time() - self.loud_t > 8 and self.dancing:
                 self.loud_t = time.time()
-                self.react = ("surprise", time.time() + 0.8)
+                self.react = ("ears", time.time() + 1.8)
                 self.say(LOUD_TEXT, 2.0)
 
     def toggle_mute(self, i):
@@ -3532,6 +4874,345 @@ class App(tk.Tk):
         if r["key"] == "__master__" and r["muted"]:
             self.react = ("surprise", time.time() + 0.8)
             self.say(MUTE_TEXT, 2.5)
+
+    # -- show / hide with a hotkey
+    def toggle_window(self):
+        try:
+            hidden = self.state() in ("iconic", "withdrawn")
+        except Exception:
+            hidden = False
+        if hidden:
+            self.show_window()
+            self.attributes("-topmost", True)             # on top of the game for a moment
+            self.after(4000, lambda: self.attributes("-topmost", self.cfg["topmost"]))
+        else:
+            self.withdraw() if (self.tray and self.tray.icon) else self.iconify()
+
+    # -- updates
+    def check_updates(self, manual=False):
+        if not manual and not self.cfg.get("update_check", True):
+            return
+
+        def work():
+            try:
+                tag, page = latest_release()
+                self.events.put(("update", tag, page, manual))
+            except Exception as e:
+                if manual:
+                    self.events.put(("say", "Couldn't reach\nGitHub right now", 2.2))
+                log_error(f"Update check: {e}")
+        threading.Thread(target=work, daemon=True).start()
+        if not manual:
+            self.after(24 * 3600 * 1000, self.check_updates)
+
+    def offer_update(self, tag, page, manual):
+        newer = version_tuple(tag) > version_tuple(APP_VERSION)
+        if not newer:
+            if manual:
+                self.say(f"You have the newest\nMixie ({APP_VERSION})! \u266a", 2.2)
+            return
+        if not manual and self.cfg.get("skip_version") == tag:
+            return
+        ans = self.dialog(f"Mixie {tag.lstrip('v')} is out",
+                          f"You have {APP_VERSION}. The new version is on GitHub - download "
+                          f"{'Mixie.exe' if FROZEN else 'Install Mixie.bat'} there and run it. "
+                          "Your settings are kept.",
+                          ("Open the download page", "Later", "Skip this version"), width=440)
+        if ans == "Open the download page":
+            import webbrowser
+            webbrowser.open(page)
+        elif ans == "Skip this version":
+            self.cfg["skip_version"] = tag
+            save_config(self.cfg)
+
+    # -- start with Windows
+    def toggle_autostart(self):
+        try:
+            autostart_set(not autostart_get())
+        except Exception as e:
+            self.dialog("Start with Windows", f"Could not change it:\n{e}")
+
+    def fix_autostart(self):
+        """If Mixie starts with Windows but was moved (or switched to Mixie.exe), point it here."""
+        try:
+            cur = autostart_get()
+            if cur and cur != autostart_command():
+                autostart_set(True)
+        except Exception:
+            pass
+
+    # -- your birthday
+    def set_birthday(self):
+        v = self.ask_text("Your birthday", "Mixie wears a party hat and throws confetti on your birthday. "
+                          "Type it as day and month, e.g. 24/12. Leave it empty to remove it.",
+                          self.birthday_hint() if self.cfg.get("birthday") else "")
+        if v is None:
+            return
+        if not v:
+            self.cfg["birthday"] = None
+        else:
+            m = re.match(r"^\s*(\d{1,2})\s*[/.\- ]\s*(\d{1,2})\s*$", v)
+            if not m or not (1 <= int(m.group(2)) <= 12 and 1 <= int(m.group(1)) <= 31):
+                self.dialog("Your birthday", "Please write it as day/month, for example 24/12.")
+                return
+            self.cfg["birthday"] = f"{int(m.group(2)):02d}-{int(m.group(1)):02d}"
+        save_config(self.cfg)
+        self.build_sprites()
+        self.render()
+        if self.is_birthday():
+            self.party_t = 0.0
+        self.say("Noted! \u266a" if self.cfg["birthday"] else "Okay, forgotten!", 1.6)
+
+    def birthday_hint(self):
+        b = self.cfg.get("birthday")
+        return time.strftime("%d/%m", time.strptime("2000-" + b, "%Y-%m-%d")) if b else "\u203a"
+
+    # -- profiles that switch by themselves
+    def auto_profile_tick(self):
+        if not self.cfg.get("auto_profile"):
+            return
+        now = time.time()
+        fg = foreground_app()
+        games = {r["key"] for r in self.rows if category(r["key"]) == "game"
+                 and r["key"] not in ("__system__",)}
+        if fg and fg in games:
+            self.last_game_t = now
+            if self.cfg.get("profile") != "Game":
+                self.auto_from = self.cfg.get("profile") or "Music"
+                self.apply_profile("Game")
+        elif self.auto_from and self.cfg.get("profile") == "Game" and now - self.last_game_t > 45 \
+                and not (games & {fg}):
+            back, self.auto_from = self.auto_from, None
+            if back in self.all_profiles():
+                self.apply_profile(back)
+
+    def all_profiles(self):
+        return PROFILE_NAMES + [n for n in self.cfg.get("my_profiles", []) if n not in PROFILE_NAMES]
+
+    def new_profile(self):
+        name = self.ask_text("New profile", "Saves the volumes you have right now under a name of your own.",
+                             "", ok="Save")
+        if not name:
+            return
+        name = name[:24]
+        if name not in self.all_profiles():
+            self.cfg["my_profiles"].append(name)
+        self.save_profile(name)
+
+    def delete_profile(self, name):
+        if self.dialog("Delete profile", f"Delete \"{name}\"?", ("Delete", "Cancel")) != "Delete":
+            return
+        self.cfg["my_profiles"] = [n for n in self.cfg["my_profiles"] if n != name]
+        self.cfg["profiles"].pop(name, None)
+        if self.cfg.get("profile") == name:
+            self.cfg["profile"] = None
+        save_config(self.cfg)
+        self.render()
+
+    def toggle_auto_profile(self):
+        self.cfg["auto_profile"] = not self.cfg.get("auto_profile")
+        self.auto_from = None
+        save_config(self.cfg)
+
+    # -- one app on another device
+    def set_row_device(self, key, dev_id, dev_name):
+        r = next((r for r in self.rows if r["key"] == key), None)
+        pids = sorted((r or {}).get("pids") or [])
+        if not pids:
+            self.say("Start the sound\nin that app first", 2.0)
+            return
+
+        def work():
+            ok = set_app_device(pids, dev_id)
+            if ok:
+                if dev_id:
+                    self.cfg["app_devices"][key] = dev_id
+                else:
+                    self.cfg["app_devices"].pop(key, None)
+                save_config(self.cfg)
+            msg = (f"{pretty_name(key)} now plays on\n{short_device(dev_name, 20)}" if ok else
+                   "Windows didn't let me\nmove that app")
+            self.events.put(("say", msg, 2.4))
+        threading.Thread(target=work, daemon=True).start()
+
+    # -- reactions
+    def check_drop(self, now, e):
+        """The drop: quiet build-up, then the bass comes in hard -> she goes wild."""
+        h = self.energy_hist
+        h.append((now, e))
+        while h and now - h[0][0] > 5.0:
+            h.pop(0)
+        if not self.dancing or now - self.drop_t < 25 or len(h) < 20:
+            return
+        before = [v for t, v in h if now - 4.5 < t < now - 1.0]
+        if before and e > 0.8 and max(before) < 0.42 and sum(before) / len(before) < 0.3:
+            self.drop_t = now
+            self.hop_t = now
+            self.move = None                  # pick a wild move right away
+            self.say("DROP! \u266a", 1.6)
+            self.burst("star", 9)
+            self.dlog("event: drop")
+
+    def seasonal(self, now, state):
+        """Snow in December, bats at Halloween, confetti on your birthday."""
+        if self.cfg.get("low_power") or now - self.season_t < 0.3:
+            return
+        self.season_t = now
+        month = time.localtime().tm_mon
+        if month == 12 and random.random() < 0.55:
+            self.spawn("flake", (235, 242, 255), random.uniform(0, self.W), -self.p(4),
+                       vx=self.p(random.uniform(-6, 6)), vy=self.p(random.uniform(14, 24)), life=7.0)
+        elif month == 10 and random.random() < 0.025:
+            left = random.random() < 0.5
+            self.spawn("bat", (40, 30, 60) if random.random() < 0.5 else (120, 70, 170),
+                       -self.p(10) if left else self.W + self.p(10), self.p(random.uniform(20, 90)),
+                       vx=self.p(70) * (1 if left else -1), vy=-self.p(4), life=6.0)
+        if self.is_birthday() and state == "dance" and now - self.party_t > 45:
+            self.party_t = now
+            self.burst("confetti", 12, [(255, 120, 190), (90, 200, 255), (255, 216, 74), (130, 230, 120)])
+            self.say("Happy birthday! \u266a", 2.0)
+
+    # -- debug mode: numbers on screen and a log file, to find out what goes wrong
+    def toggle_debug(self):
+        self.cfg["debug"] = not self.cfg.get("debug", False)
+        save_config(self.cfg)
+        self.say("Debug mode on" if self.cfg["debug"] else "Debug mode off", 1.4)
+        if self.cfg["debug"]:
+            self.dlog(f"--- debug on  {APP_NAME} {APP_VERSION}  Python {sys.version.split()[0]}  "
+                      f"{'exe' if FROZEN else 'script'}  scale {self.S:.2f}  safe mode {SAFE_MODE}")
+        self.debug_tick(reschedule=False)
+
+    def dlog(self, text):
+        if not self.cfg.get("debug"):
+            return
+        try:
+            if os.path.exists(DEBUG_LOG) and os.path.getsize(DEBUG_LOG) > 2_000_000:
+                os.replace(DEBUG_LOG, DEBUG_LOG + ".old")
+            with open(DEBUG_LOG, "a", encoding="utf-8") as f:
+                f.write(time.strftime("%H:%M:%S ") + f"{time.time() % 1:.2f}"[1:] + "  " + text + "\n")
+        except Exception:
+            pass
+
+    def debug_lines(self):
+        an, c = self.analyzer, self.clock
+        n, secs = self.wave_stats
+        self.wave_stats = [0, 0.0]
+        dt = max(0.001, time.time() - self.dbg_last.get("t", time.time() - 1))
+        self.dbg_last["t"] = time.time()
+        fps, ms = n / dt, (secs / n * 1000 if n else 0.0)
+        age = time.time() - an.updated if an.updated else -1
+        frames = len(DANCE_MOVES.get(self.move, ())) if self.move else 0
+        return [
+            f"tempo {an.bpm:6.1f}  conf {an.tempo_conf:.2f}  {'LOCKED' if c.locked else 'free  '}"
+            f"  x{c.mult:g}  shown {c.shown or '-'}",
+            f"beat {c.phase:8.2f}  L {c.L:.3f}s  {self.state_name}/{self.mode}  energy {self.energy:.2f}",
+            f"move {self.move or '-'} {self.dance_i + 1}/{frames}  eyes {self.move_eyes}",
+            f"audio {'ok' if an.ok else 'off'}  age {age:.2f}s  waves {fps:4.1f} fps {ms:4.1f} ms"
+            f"  mic {'yes' if self.mic_ctl else 'no'}",
+        ]
+
+    def debug_tick(self, reschedule=True):
+        try:
+            if os.path.exists(SHOW_REQUEST):        # Mixie was started again: show this one
+                try:
+                    os.remove(SHOW_REQUEST)
+                except Exception:
+                    pass
+                self.show_window()
+                self.say("I'm already here! \u266a", 1.8)
+            on = self.cfg.get("debug", False)
+            if on:
+                lines = self.debug_lines()
+                text = "\n".join(lines)
+                f = ("Consolas", max(8, round(8 * self.S)))
+                if self.dbg_items is None:
+                    bg = self.canvas.create_rectangle(0, 0, 1, 1, fill="#000000", outline="#ff8cc6", tags="dbg")
+                    tx = self.canvas.create_text(0, 0, anchor="sw", fill="#ffd1ea", font=f, tags="dbg")
+                    self.dbg_items = (bg, tx)
+                bg, tx = self.dbg_items
+                h = self.canvas.winfo_height()
+                self.canvas.itemconfig(tx, text=text, font=f)
+                self.canvas.coords(tx, self.p(10), h - self.p(8))
+                x0, y0, x1, y1 = self.canvas.bbox(tx)
+                self.canvas.coords(bg, x0 - self.p(6), y0 - self.p(4), x1 + self.p(6), y1 + self.p(4))
+                self.canvas.tag_raise("dbg")
+                now = time.time()
+                if now - self.dbg_last.get("log", 0) >= 1.0:
+                    self.dbg_last["log"] = now
+                    self.dlog(" | ".join(" ".join(x.split()) for x in lines))
+                # things worth noting when they happen
+                ev = (self.clock.locked, self.state_name, self.move, self.clock.shown)
+                if ev != self.dbg_last.get("ev"):
+                    old = self.dbg_last.get("ev")
+                    self.dbg_last["ev"] = ev
+                    if old:
+                        names = ("locked", "state", "move", "bpm")
+                        self.dlog("event: " + ", ".join(f"{k} {a} -> {b}" for k, a, b in zip(names, old, ev)
+                                                        if a != b))
+            elif self.dbg_items is not None:
+                self.canvas.delete("dbg")
+                self.dbg_items = None
+        except Exception:
+            log_error(traceback.format_exc())
+        if reschedule:
+            self.after(250, self.debug_tick)
+
+    def open_data_folder(self):
+        try:
+            os.startfile(HERE)
+        except Exception as e:
+            self.dialog("Mixie's folder", f"Could not open the folder:\n{HERE}\n\n{e}")
+
+    def selftest_done(self):
+        """Mixie.exe --selftest: started fine, everything inside the exe can be imported."""
+        report = [f"{APP_NAME} {APP_VERSION} selftest", f"frozen {FROZEN}"]
+        for mod in ("pycaw", "comtypes", "PIL", "numpy", "soundcard", "pystray", "psutil"):
+            try:
+                importlib.import_module(mod)
+                report.append(f"{mod}: ok")
+            except Exception as e:
+                report.append(f"{mod}: FAILED {e}")
+        report.append(f"rows {len(self.rows)}  sprites {len(self.moves)} moves  analyzer ok {self.analyzer.ok}")
+        try:
+            with open(os.path.join(HERE, "selftest.txt"), "w", encoding="utf-8") as f:
+                f.write("\n".join(report) + "\n")
+        except Exception:
+            pass
+        failed = any("FAILED" in r for r in report)
+        self.on_close()
+        os._exit(1 if failed else 0)
+
+    def toggle_update_check(self):
+        self.cfg["update_check"] = not self.cfg.get("update_check", True)
+        save_config(self.cfg)
+
+    def toggle_low_power(self):
+        self.cfg["low_power"] = not self.cfg.get("low_power", False)
+        save_config(self.cfg)
+
+    def toggle_watch(self):
+        self.cfg["watch_mode"] = not self.cfg.get("watch_mode", True)
+        save_config(self.cfg)
+
+    def toggle_mic_row(self):
+        self.cfg["mic_row"] = not self.cfg.get("mic_row", True)
+        save_config(self.cfg)
+        self.order = None
+        self.refresh_now()
+
+    def toggle_mic(self):
+        i = next((j for j, r in enumerate(self.rows) if r["key"] == "__mic__"), None)
+        if i is not None:
+            self.toggle_mute(i)
+            muted = self.rows[i]["muted"]
+        elif self.mic_ctl is not None:     # the row is hidden: switch it anyway
+            muted = not self.mic_ctl.get_mute()
+            self.mic_ctl.set_mute(muted)
+        else:
+            self.say("No microphone\nfound", 1.6)
+            return
+        self.react = ("surprise", time.time() + 0.5) if muted else ("wave", time.time() + 1.0)
+        self.say("Mic off!" if muted else "Mic on! \u266a", 1.4)
 
     def sync_row(self, r, force=False):
         dragging = self.drag is not None and self.drag < len(self.rows) and self.rows[self.drag] is r
@@ -3557,6 +5238,14 @@ class App(tk.Tk):
                     if r["key"] == "__master__":
                         r["ctl"] = m
             self.meter = find_meter() or self.meter
+            if not SAFE_MODE:
+                mic = find_mic()
+                if (mic is None) != (self.mic_ctl is None):
+                    self.order = None       # a microphone was plugged in or out
+                self.mic_ctl = mic
+                for r in self.rows:
+                    if r["key"] == "__mic__" and mic is not None:
+                        r["ctl"] = mic
             name = default_device_name()
             if name and name != self.device_name:
                 self.device_name = name
@@ -3583,6 +5272,10 @@ class App(tk.Tk):
             return (1, 0, pretty_name(k).lower())
 
         keys = sorted((k for k in groups if k not in hidden), key=sort_key)
+        self.hidden_live = [k for k in self.cfg["hidden"] if k in groups or (k == "__master__" and self.master_ctl)
+                            or (k == "__mic__" and self.mic_ctl)]
+        if self.mic_ctl and "__mic__" not in hidden and self.cfg.get("mic_row", True):
+            keys.insert(0, "__mic__")
         if self.master_ctl and "__master__" not in hidden:
             keys.insert(0, "__master__")
 
@@ -3591,15 +5284,24 @@ class App(tk.Tk):
         rows = []
         for k in keys:
             r = existing.get(k)
-            if k != "__master__" and k not in self.icons:
+            if k not in ("__master__", "__mic__") and k not in self.icons:
                 self.icons[k] = exe_icon(proc_exe(groups[k]["proc"]))
             if r is None:
-                ctl = self.master_ctl if k == "__master__" else SessionControl(groups[k]["vols"])
+                ctl = (self.master_ctl if k == "__master__" else self.mic_ctl if k == "__mic__"
+                       else SessionControl(groups[k]["vols"]))
                 r = {"key": k, "ctl": ctl, "vol": 0, "muted": False, "last": 0.0}
                 self.sync_row(r, force=True)
-            elif k != "__master__":
+            elif k not in ("__master__", "__mic__"):
                 r["ctl"].volumes = groups[k]["vols"]
+            if k in groups:
+                r["pids"] = groups[k].get("pids", set())
             rows.append(r)
+        new_games = [k for k in keys if category(k) == "game" and k not in self.seen_games
+                     and k not in ("__master__", "__mic__", "__system__")]
+        if new_games and self.seen_games is not None and self.rows:
+            if time.time() - self.started_t > 8:
+                self.say("Good luck,\nhave fun! \u266a", 2.0)
+        self.seen_games.update(new_games)
         self.rows = rows
 
         changed = keys != self.order
@@ -3612,6 +5314,7 @@ class App(tk.Tk):
 
         for r in self.rows:
             self.sync_row(r)
+        self.auto_profile_tick()
         sig = tuple((r["key"], r["vol"], r["muted"]) for r in self.rows)
         if changed or sig != self.last_sig:
             self.last_sig = sig
@@ -3619,23 +5322,35 @@ class App(tk.Tk):
 
     # -- right-click menu
     def show_menu(self, event, key):
-        self.menu.delete(0, "end")
+        """Right-click on a card (or the empty space): a small panel like the others."""
+        items = [{"k": "head", "t": pretty_name(key) if key else "Mixie"}]
         if key:
-            self.menu.add_command(label=f"Hide {pretty_name(key)}",
-                                  command=lambda: self.hide(key))
+            items.append({"k": "act", "t": f"Hide {pretty_name(key)}", "icon": "eye", "do": lambda: self.hide(key)})
+            if category(key) not in ("master", "mic", "system") and sys.platform == "win32":
+                try:
+                    devs = output_devices()
+                except Exception:
+                    devs = []
+                if len(devs) > 1:
+                    cur = self.cfg["app_devices"].get(key, "")
+                    items.append({"k": "head", "t": f"Play {pretty_name(key)} on"})
+                    items.append({"k": "act", "t": "Same as Windows", "icon": "check" if not cur else "dot",
+                                  "do": lambda: self.set_row_device(key, "", "the default device")})
+                    for did, name, _ in devs:
+                        items.append({"k": "act", "t": nice_device(name, 30), "icon": "dev:" + device_kind(name),
+                                      "tick": did == cur,
+                                      "do": lambda did=did, name=name: self.set_row_device(key, did, name)})
         n = len(self.cfg["hidden"])
         if n:
-            self.menu.add_command(label=f"Show hidden programs ({n})", command=self.unhide_all)
-        if self.menu.index("end") is not None:
-            self.menu.add_separator()
-        for name in PROFILE_NAMES:
-            self.menu.add_command(label=f"{name} profile", command=lambda name=name: self.apply_profile(name))
-        if sys.platform == "win32":
-            if self.menu.index("end") is not None:
-                self.menu.add_separator()
-            self.menu.add_command(label="Create desktop shortcut", command=self.make_shortcut)
-        if self.menu.index("end") is not None:
-            self.menu.tk_popup(event.x_root, event.y_root)
+            items.append({"k": "act", "t": "Hidden programs", "icon": "eye", "hint": str(n),
+                          "do": self.open_hidden_panel})
+        items.append({"k": "head", "t": "Profile"})
+        for name in self.all_profiles():
+            items.append({"k": "act", "t": name, "icon": "check" if name == self.cfg.get("profile") else "dot",
+                          "do": lambda name=name: self.apply_profile(name)})
+        if getattr(self, "panel", None) is not None and not self.panel.closed:
+            self.panel.close()
+        self.panel = Panel(self, None, items, 300, at=(event.x_root + 4, event.y_root + 4))
 
     def make_shortcut(self):
         link, errors = create_shortcuts(self.icon_file)
@@ -3643,7 +5358,7 @@ class App(tk.Tk):
             self.cfg["shortcut_link"] = link
             self.cfg["shortcut_for"] = SCRIPT
             save_config(self.cfg)
-            messagebox.showinfo(APP_NAME, "The shortcut is now on your desktop and in the Start menu.", parent=self)
+            self.dialog("Shortcut created", "The shortcut is now on your desktop and in the Start menu.")
         else:
             self.shortcut_failed(errors)
 
@@ -3654,11 +5369,52 @@ class App(tk.Tk):
         self.order = None
         self.refresh_now()
 
+    def unhide(self, key):
+        if key in self.cfg["hidden"]:
+            self.cfg["hidden"].remove(key)
+            save_config(self.cfg)
+        self.hover = None
+        self.order = None
+        self.refresh_now()
+        self.resize()
+        self.render()
+        self.say(f"{pretty_name(key)} is back! \u266a", 1.6)
+
+    def toggle_hidden(self, key):
+        if key in self.cfg["hidden"]:
+            self.cfg["hidden"].remove(key)
+        else:
+            self.cfg["hidden"].append(key)
+        save_config(self.cfg)
+        self.order = None
+        self.refresh_now()
+        self.resize()
+        self.render()
+
+    def open_hidden_panel(self):
+        """Everything you have hidden, with a switch each to show it again."""
+        keys = list(self.cfg["hidden"])
+        items = [{"k": "head", "t": "Hidden programs \u00b7 switch on to show"}]
+        for k in keys:
+            live = k in self.hidden_live
+            items.append({"k": "toggle", "t": pretty_name(k) + ("" if live else "  (not playing)"),
+                          "icon": "eye", "get": lambda k=k: k not in self.cfg["hidden"],
+                          "set": lambda k=k: self.toggle_hidden(k)})
+        items += [{"k": "sep"},
+                  {"k": "act", "t": "Show them all", "icon": "eye", "do": self.unhide_all},
+                  {"k": "foot", "t": "Tip: point at a card and click (-) to hide it"}]
+        if getattr(self, "panel", None) is not None and not self.panel.closed:
+            self.panel.close()
+        box = (self.W - self.p(PAD) - self.p(10), self.strip_top(), self.W - self.p(PAD), self.strip_top())
+        self.panel = Panel(self, box, items, 320)
+
     def unhide_all(self):
         self.cfg["hidden"] = []
         save_config(self.cfg)
         self.order = None
         self.refresh_now()
+        self.resize()
+        self.render()
 
     # -- always on top
     def toggle_topmost(self):
@@ -3672,8 +5428,12 @@ class App(tk.Tk):
         log_error(text)
         if not getattr(self, "_error_shown", False):
             self._error_shown = True
-            messagebox.showerror(APP_NAME, "Something went wrong (the program keeps running):\n\n" + text[-1200:]
-                                 + f"\n\nSaved to:\n{CRASH_LOG}", parent=self)
+            try:
+                self.dialog("Something went wrong", "Mixie keeps running.\n\n" + text[-900:]
+                            + f"\n\nSaved to:\n{CRASH_LOG}", width=520)
+            except Exception:
+                messagebox.showerror(APP_NAME, "Something went wrong (the program keeps running):\n\n"
+                                     + text[-1200:] + f"\n\nSaved to:\n{CRASH_LOG}", parent=self)
 
     def heartbeat(self):
         run_mark(_STARTED)
@@ -3701,16 +5461,56 @@ class App(tk.Tk):
         self.destroy()
 
 
+if "--set-app-device" in sys.argv:          # helper process (see set_app_device), no window
+    _i = sys.argv.index("--set-app-device")
+    try:          # only plain process numbers and a real device id are accepted
+        _pids = [int(x) for x in sys.argv[_i + 1].split(",") if x]
+        _dev = "" if sys.argv[_i + 2] == "-" else sys.argv[_i + 2]
+        if not _pids or len(_pids) > 64 or not all(0 < p < 2 ** 32 for p in _pids) or \
+                (_dev and not DEVICE_ID_RE.fullmatch(_dev)):
+            raise ValueError("bad arguments")
+    except Exception:
+        os._exit(2)
+    try:
+        _code = _set_app_device_here(_pids, _dev)
+    except Exception as _e:
+        log_error(f"Per-app device helper: {_e}")
+        _code = 5
+    os._exit(_code)
+
+
+SHOW_REQUEST = os.path.join(tempfile.gettempdir(), "mixie_show.request")
+_instance_mutex = None
+
+
+def already_running():
+    """Only one Mixie at a time (two would fight over the hotkeys and the volumes)."""
+    global _instance_mutex
+    try:
+        k32 = ctypes.windll.kernel32
+        _instance_mutex = k32.CreateMutexW(None, False, "Local\\Mixie.SingleInstance")
+        return k32.GetLastError() == 183          # ERROR_ALREADY_EXISTS
+    except Exception:
+        return False
+
+
 if __name__ == "__main__":
+    if not SELFTEST and already_running():
+        try:       # ask the Mixie that is already running to show itself, then quit
+            with open(SHOW_REQUEST, "w", encoding="utf-8") as _f:
+                _f.write(str(time.time()))
+        except Exception:
+            pass
+        os._exit(0)
     try:
         app = App()
         run_mark(_STARTED)
         app.after(2000, app.heartbeat)
         if SAFE_MODE:
-            app.after(1500, lambda: messagebox.showwarning(
-                APP_NAME, "The program closed unexpectedly last time.\n\n"
-                          "This time it runs without capturing audio for the waves and without song info.\n"
-                          f"The error from last time is in:\n{PREV_CRASH_LOG}", parent=app))
+            app.after(1500, lambda: app.dialog(
+                "Safe mode", "Mixie closed unexpectedly last time.\n\n"
+                             "This time it runs without capturing audio for the waves and without song info.\n\n"
+                             f"The error from last time is in:\n{PREV_CRASH_LOG}", width=460))
         app.mainloop()
         os._exit(0)   # makes sure the tray icon's thread doesn't keep the program alive
     except SystemExit:

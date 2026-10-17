@@ -1,0 +1,81 @@
+name: Build Mixie.exe
+
+on:
+  release:
+    types: [published]   # publishing a release builds the exe and attaches it
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write        # attach the exe to the release
+  id-token: write        # sign the build provenance
+  attestations: write
+
+jobs:
+  exe:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install packages
+        run: python -m pip install -r requirements.txt pyinstaller
+
+      - name: Make the icon
+        run: python packaging/make_icon.py
+
+      - name: Build Mixie.exe
+        run: python -m PyInstaller --noconfirm --clean packaging/mixie.spec
+
+      - name: Self-test (starts Mixie.exe, checks every package inside it, closes it)
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath dist\Mixie.exe -ArgumentList "--selftest" -PassThru
+          if (-not $p.WaitForExit(120000)) { $p.Kill(); throw "Mixie.exe did not finish the self-test" }
+          Get-Content "$env:LOCALAPPDATA\Mixie\selftest.txt"
+          if ($p.ExitCode -ne 0) {
+            Get-Content "$env:LOCALAPPDATA\Mixie\crash_log.txt" -ErrorAction SilentlyContinue
+            throw "Self-test failed (exit code $($p.ExitCode))"
+          }
+
+      - name: Self-test of the per-app device helper (must not crash)
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath dist\Mixie.exe -ArgumentList "--set-app-device", "4", "-" -PassThru
+          if (-not $p.WaitForExit(30000)) { $p.Kill(); throw "helper hung" }
+          "exit code: $($p.ExitCode)  (0 = done, 3 = interface not on this Windows, 4 = refused)"
+          if (@(0, 3, 4) -notcontains $p.ExitCode) { throw "helper crashed" }
+
+      - name: Checksums
+        shell: pwsh
+        run: |
+          Copy-Item "Install Mixie.bat" dist\
+          $lines = Get-ChildItem dist\Mixie.exe, "dist\Install Mixie.bat" | ForEach-Object {
+            "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)" }
+          $lines | Set-Content dist\SHA256SUMS.txt
+          Get-Content dist\SHA256SUMS.txt
+
+      - name: Build provenance (proves the exe was built here, from this code)
+        if: github.event_name != 'pull_request'
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: dist/Mixie.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Mixie-exe
+          path: |
+            dist/Mixie.exe
+            dist/SHA256SUMS.txt
+
+      - name: Attach to the release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/Mixie.exe
+            dist/Install Mixie.bat
+            dist/SHA256SUMS.txt

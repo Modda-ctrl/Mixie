@@ -2,6 +2,7 @@
 # Run by "Install Mixie.bat". Unpacks the version of Mixie that is embedded in the .bat file,
 # installs it (or updates an existing install) and starts it.
 import base64
+import hashlib
 import ctypes
 import importlib.util
 import os
@@ -95,7 +96,8 @@ def stop_running(names):
             if proc.info["pid"] == me:
                 continue
             cmd = " ".join(proc.info["cmdline"] or []).lower()
-            if any(n.lower() in cmd for n in names) and "python" in (proc.info["name"] or "").lower():
+            pname = (proc.info["name"] or "").lower()
+            if (any(n.lower() in cmd for n in names) and "python" in pname) or pname == "mixie.exe":
                 proc.terminate()
                 try:
                     proc.wait(5)
@@ -121,6 +123,18 @@ def main():
     data = open(bat, "rb").read()
     start, end = b"::" + b"PAYLOAD::", b"::" + b"PAYLOADEND::"
     payload = base64.b64decode(b"".join(data.split(start, 1)[1].split(end, 1)[0].split()))
+    # Safety: the file carries a SHA-256 checksum of mixie.py. If it doesn't match, the file was
+    # damaged (or changed) after it was built - then nothing is installed.
+    m = re.search(rb"::PAYLOADSHA256::([0-9a-f]{64})::", data)
+    if not m or hashlib.sha256(payload).hexdigest() != m.group(1).decode():
+        say("This installer file is damaged or has been changed - nothing was installed.")
+        say("Download Install Mixie.bat again from https://github.com/Modda-ctrl/Mixie/releases")
+        sys.exit(1)
+    try:
+        compile(payload, "mixie.py", "exec")      # make sure it is complete, valid Python
+    except SyntaxError as e:
+        say(f"The program inside this file is broken ({e}) - nothing was installed.")
+        sys.exit(1)
     version = re.search(rb'APP_VERSION = "([^"]+)"', payload)
     version = version.group(1).decode() if version else "?"
 
