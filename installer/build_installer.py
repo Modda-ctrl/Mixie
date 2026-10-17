@@ -25,7 +25,7 @@ def build(out_path, pre_steps=None):
     head = r'''@echo off
 chcp 65001 >nul
 title Mixie - install / update
-rem Mixie - made by Modda-ctrl - https://github.com/Modda-ctrl/mixie
+rem Mixie - made by Modda-ctrl - https://github.com/Modda-ctrl/Mixie
 cd /d "%~dp0"
 
 rem --- Find Python

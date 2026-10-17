@@ -1,0 +1,31 @@
+name: Bug report
+description: Something doesn't work or Mixie crashed
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for helping make Mixie better! A crash log makes bugs much easier to fix.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Crash log
+      description: Paste the contents of `%LOCALAPPDATA%\Mixie\crash_log.txt` (and `crash_log_previous.txt` if it exists).
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: Mixie version
+      description: Shown in ⋯ → About Mixie
+      placeholder: "1.2.3"
+  - type: input
+    id: system
+    attributes:
+      label: Windows and Python version
+      placeholder: "Windows 11, Python 3.13"

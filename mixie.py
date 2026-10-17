@@ -1,6 +1,6 @@
 """
 Mixie – a per-app volume mixer with a dancing pixel buddy (Windows).
-Made by Modda-ctrl – https://github.com/Modda-ctrl/mixie
+Made by Modda-ctrl – https://github.com/Modda-ctrl/Mixie
 
 Shows a slider for every program that is playing sound right now (Spotify, Firefox,
 games, Discord ...) plus the master volume. The window remembers where it was, so it
@@ -34,9 +34,9 @@ import tkinter as tk
 from tkinter import messagebox
 
 APP_NAME = "Mixie"
-APP_VERSION = "1.2.2"
+APP_VERSION = "1.2.3"
 AUTHOR = "Modda-ctrl"
-REPO_URL = "https://github.com/Modda-ctrl/mixie"
+REPO_URL = "https://github.com/Modda-ctrl/Mixie"
 
 # ---------------------------------------------------------------- crash reporting
 # Everything that goes wrong is written to crash_log.txt in the program folder (hard crashes too).

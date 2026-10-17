@@ -1,0 +1,11 @@
+name: Idea or feature request
+description: Suggest something new – a feature, a dance move, an outfit…
+labels: [enhancement]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: Your idea
+      description: What would you like Mixie to do, and why would it be useful?
+    validations:
+      required: true
