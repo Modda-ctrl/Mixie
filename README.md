@@ -132,7 +132,9 @@ They work everywhere – including inside full-screen games. Switch them off in 
 ## 💡 Tips
 
 - The buttons at the top right are **Outfit**, **Audio device**, **Profile** and **⋯** (settings).
-- **Right-click** a card to hide a program (for example *System sounds*); right-click again to bring it back.
+- **Too many cards?** Point at one and click the **(-)** on its icon to hide it. Hidden programs that play sound
+  wait as small chips in the *Hidden* strip at the bottom – click one to bring it back.
+- **Right-click** a card for more: send it to another sound device, switch profile.
 - **Click Mixie.** Try it while she's asleep, too.
 
 <p align="center">

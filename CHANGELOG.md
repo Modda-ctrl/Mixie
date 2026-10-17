@@ -34,6 +34,9 @@
 - Watch mode: the sound waves calm down and stand still while she naps.
 - Every panel and message has a close button (X); the audio device picker and the right-click menu are now
   panels like the others.
+- Hide a card in one click: point at it and click the (-) on its icon. Hidden programs that are playing show up
+  as small chips in a *Hidden* strip at the bottom – click one to bring it back – and *All hidden* lists
+  everything with a switch each.
 - Safety: only one Mixie runs at a time (starting it again brings the running one forward), a damaged
   settings file can no longer crash it and settings are saved safely, the installer checks a SHA-256 checksum
   before installing, update checks only ever open Mixie's own GitHub page (and can be switched off), and the

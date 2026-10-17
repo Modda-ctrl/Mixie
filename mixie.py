@@ -3133,6 +3133,7 @@ class App(tk.Tk):
                      ("birthday", None), ("update_check", True), ("skip_version", None), ("app_devices", {})):
             self.cfg.setdefault(k, v)
         self.last_locked_t = 0.0
+        self.hidden_live = []
         self.still = 0.0            # 1 = the waves stand still (watch mode)
         self.still_drawn = False
         self.video_since = None
@@ -3415,6 +3416,16 @@ class App(tk.Tk):
             for name, (cx, cy, r) in self.media_buttons().items():
                 if (x - cx) ** 2 + (y - cy) ** 2 <= (r + self.p(3)) ** 2:
                     return ("media", name)
+        if self.cfg["hidden"]:
+            for x0, y0, x1, y1, kind, key, _ in self.hidden_chips():
+                if x0 <= x <= x1 and y0 <= y <= y1:
+                    return (kind, key)
+        if self.hover and self.hover[0] in ("row", "mute", "hidebtn"):
+            i = self.hover[1]
+            if i < len(self.rows):
+                bx, by, br = self.hide_badge(i)
+                if (x - bx) ** 2 + (y - by) ** 2 <= (br + self.p(3)) ** 2:
+                    return ("hidebtn", i)
         if self.p(PAD) <= x <= self.W - self.p(PAD):
             for i in range(len(self.rows)):
                 t = self.row_top(i)
@@ -3426,6 +3437,16 @@ class App(tk.Tk):
         return None
 
     # -- rendering
+    def strip_top(self):
+        n = len(self.rows)
+        L = self.L
+        if n:
+            return self.content_top() + n * (self.p(L["row_h"]) + self.p(L["gap"]))
+        return self.content_top() + self.p(130)
+
+    def strip_h(self):
+        return self.p(40) if self.cfg["hidden"] else 0
+
     def window_height(self):
         n = len(self.rows)
         L = self.L
@@ -3434,7 +3455,44 @@ class App(tk.Tk):
             h += n * self.p(L["row_h"]) + (n - 1) * self.p(L["gap"]) + self.p(PAD)
         else:
             h += self.p(130)
+        if self.cfg["hidden"]:      # the "Hidden" strip at the bottom
+            h += self.strip_h() + (self.p(L["gap"]) if n else 0)
         return h
+
+    def hide_badge(self, i):
+        """The small (-) badge on the app icon's corner of a card, shown while you point at the card."""
+        L = self.L
+        ts = self.p(L["icon"])
+        tx = self.p(PAD + L["icon_x"])
+        ty = self.row_top(i) + (self.p(L["row_h"]) - ts) // 2
+        return tx + self.p(1), ty + self.p(1), self.p(9)
+
+    def hidden_chips(self):
+        """Chips in the 'Hidden' strip: one per hidden program that is playing sound right now
+        (click = show it again), and one that lists everything that is hidden."""
+        p = self.p
+        top = self.strip_top()
+        y0, y1 = top + p(6), top + p(34)
+        f = font("semi", p(12))
+        x = p(PAD) + p(14) + int(font("semi", p(11)).getlength("HIDDEN")) + p(12)
+        right = self.W - p(PAD)
+        out = []
+        n_all = len(self.cfg["hidden"])
+        last = ("hiddenpanel", None, f"All hidden ({n_all})")
+        last_w = int(f.getlength(last[2])) + p(24)
+        live = [k for k in self.hidden_live if k in self.cfg["hidden"]]
+        for i, k in enumerate(live):
+            label = pretty_name(k)
+            w = p(26) + int(f.getlength(label)) + p(12)
+            if x + w + p(6) + last_w > right:
+                more = len(live) - i
+                last = ("hiddenpanel", None, f"+{more} more")
+                last_w = int(f.getlength(last[2])) + p(24)
+                break
+            out.append((x, y0, x + w, y1, "unhide", k, label))
+            x += w + p(6)
+        out.append((x, y0, x + last_w, y1) + last)
+        return out
 
     def background(self, h):
         bg = self.bg_cache.get(h)
@@ -3580,6 +3638,55 @@ class App(tk.Tk):
 
         return self.cached(key, build)
 
+    def strip_tile(self):
+        """The 'Hidden' strip below the cards."""
+        p, W = self.p, self.W
+        chips = self.hidden_chips()
+        top = self.strip_top()
+        hov = self.hover if self.hover and self.hover[0] in ("unhide", "hiddenpanel") else None
+        key = ("strip", W, tuple(c[5] or c[6] for c in chips), hov, tuple(c[6] for c in chips))
+
+        def build():
+            h = self.strip_h()
+            big = Image.new("RGBA", (W * SS, h * SS), (0, 0, 0, 0))
+            d = ImageDraw.Draw(big)
+            d.rounded_rectangle((p(PAD) * SS, 0, (W - p(PAD)) * SS, h * SS - 1), radius=p(14) * SS,
+                                fill=(20, 21, 26, 200))
+            for x0, y0, x1, y1, kind, k, label in chips:
+                y0, y1 = y0 - top, y1 - top
+                on = hov == (kind, k)
+                d.rounded_rectangle((x0 * SS, y0 * SS, x1 * SS, y1 * SS), radius=(y1 - y0) * SS // 2,
+                                    fill=(70, 72, 84, 255) if on else (40, 41, 49, 255))
+                if kind == "unhide" and self.icons.get(k) is None:
+                    cx, cy, rr = x0 + p(15), (y0 + y1) / 2, p(9)
+                    if k in ("__master__", "__mic__", "__system__"):
+                        col = app_color(k)
+                    else:
+                        col = app_color(k)
+                    d.ellipse(((cx - rr) * SS, (cy - rr) * SS, (cx + rr) * SS, (cy + rr) * SS), fill=col)
+            img = big.reduce(SS)
+            t = ImageDraw.Draw(img)
+            t.text((p(PAD) + p(14), h / 2), "HIDDEN", font=font("semi", p(11)), fill=SUB, anchor="lm")
+            f = font("semi", p(12))
+            for x0, y0, x1, y1, kind, k, label in chips:
+                y0, y1 = y0 - top, y1 - top
+                cy = (y0 + y1) / 2
+                if kind == "unhide":
+                    ic = self.icons.get(k)
+                    if ic is not None:
+                        s_ = p(18)
+                        img.alpha_composite(ic.resize((s_, s_), LANCZOS), (int(x0 + p(6)), int(cy - s_ / 2)))
+                    elif k == "__mic__":
+                        pass
+                    else:
+                        t.text((x0 + p(15), cy), pretty_name(k)[:1], font=font("semi", p(10)), fill=TEXT,
+                               anchor="mm")
+                    t.text((x0 + p(26), cy), label, font=f, fill=TEXT, anchor="lm")
+                else:
+                    t.text(((x0 + x1) / 2, cy), label, font=f, fill=PINK, anchor="mm")
+            return img
+        return self.cached(key, build)
+
     def icon_tile(self, key, size, muted):
         """The app icon (or letter), ready to paste in, at the right size."""
         def build():
@@ -3596,11 +3703,12 @@ class App(tk.Tk):
 
     def row_tile(self, i, r):
         p, W, L = self.p, self.W, self.L
-        active = self.hover in (("row", i), ("mute", i)) or self.drag == i
+        active = self.hover in (("row", i), ("mute", i), ("hidebtn", i)) or self.drag == i
         hm = self.hover == ("mute", i)
+        hb = self.hover == ("hidebtn", i)
         has_icon = self.icons.get(r["key"]) is not None
         ducked = self.duck_amt < 0.98 and category(r["key"]) == "music"
-        key = ("row", W, r["key"], r["vol"], r["muted"], active, hm, has_icon, ducked and round(self.duck_amt, 2))
+        key = ("row", W, r["key"], r["vol"], r["muted"], active, hm, hb, has_icon, ducked and round(self.duck_amt, 2))
 
         def build():
             M = p(MARGIN)
@@ -3679,6 +3787,18 @@ class App(tk.Tk):
                 if ic is not None:
                     img.alpha_composite(ic, (tx + (ts - isz) // 2, ty + (ts - isz) // 2))
 
+            if active and self.drag != i:      # the (-) badge: hide this card
+                bx, by, br = self.hide_badge(i)
+                by -= self.row_top(i) - M
+                bs = Image.new("RGBA", ((2 * br + 4) * SS, (2 * br + 4) * SS), (0, 0, 0, 0))
+                bd = ImageDraw.Draw(bs)
+                c = (br + 2) * SS
+                bd.ellipse((c - br * SS, c - br * SS, c + br * SS, c + br * SS),
+                           fill=WHITE if hb else (70, 72, 84, 255), outline=(14, 15, 19, 255), width=max(2, SS * 2))
+                bd.line((c - br * SS * 0.45, c, c + br * SS * 0.45, c), fill=DARK if hb else WHITE,
+                        width=max(2, round(br * SS * 0.22)))
+                bs = bs.reduce(SS)
+                img.alpha_composite(bs, (int(bx - br - 2), int(by - br - 2)))
             t = ImageDraw.Draw(img)
             if not has_icon and r["key"] not in ("__master__", "__system__", "__mic__"):
                 t.text((tx + ts / 2, ty + ts / 2), pretty_name(r["key"])[:1],
@@ -3712,6 +3832,8 @@ class App(tk.Tk):
         if active:
             i, r = active
             frame.alpha_composite(self.row_tile(i, r), (0, self.row_top(i) - M))
+        if self.cfg["hidden"]:
+            frame.alpha_composite(self.strip_tile(), (0, self.strip_top()))
         if not self.rows:
             ImageDraw.Draw(frame).text(
                 (self.W / 2, self.content_top() + self.p(60)),
@@ -3997,8 +4119,8 @@ class App(tk.Tk):
         ]
         n = len(cfg["hidden"])
         if n:
-            items.append({"k": "act", "t": "Show hidden programs", "icon": "eye", "hint": str(n),
-                          "do": self.unhide_all})
+            items.append({"k": "act", "t": "Hidden programs", "icon": "eye", "hint": str(n),
+                          "do": self.open_hidden_panel})
         if sys.platform == "win32":
             items.append({"k": "act", "t": "Create desktop shortcut", "icon": "link", "do": self.make_shortcut})
         items += [
@@ -4685,6 +4807,15 @@ class App(tk.Tk):
             self.open_device_menu()
         elif kind == "mute":
             self.toggle_mute(h[1])
+        elif kind == "hidebtn":
+            key = self.rows[h[1]]["key"]
+            self.hover = None
+            self.hide(key)
+            self.say(f"{pretty_name(key)} hidden -\nit's at the bottom", 2.0)
+        elif kind == "unhide":
+            self.unhide(h[1])
+        elif kind == "hiddenpanel":
+            self.open_hidden_panel()
         elif kind == "row":
             self.drag = h[1]
             self.set_from_x(h[1], e.x)
@@ -5141,6 +5272,8 @@ class App(tk.Tk):
             return (1, 0, pretty_name(k).lower())
 
         keys = sorted((k for k in groups if k not in hidden), key=sort_key)
+        self.hidden_live = [k for k in self.cfg["hidden"] if k in groups or (k == "__master__" and self.master_ctl)
+                            or (k == "__mic__" and self.mic_ctl)]
         if self.mic_ctl and "__mic__" not in hidden and self.cfg.get("mic_row", True):
             keys.insert(0, "__mic__")
         if self.master_ctl and "__master__" not in hidden:
@@ -5209,8 +5342,8 @@ class App(tk.Tk):
                                       "do": lambda did=did, name=name: self.set_row_device(key, did, name)})
         n = len(self.cfg["hidden"])
         if n:
-            items.append({"k": "act", "t": "Show hidden programs", "icon": "eye", "hint": str(n),
-                          "do": self.unhide_all})
+            items.append({"k": "act", "t": "Hidden programs", "icon": "eye", "hint": str(n),
+                          "do": self.open_hidden_panel})
         items.append({"k": "head", "t": "Profile"})
         for name in self.all_profiles():
             items.append({"k": "act", "t": name, "icon": "check" if name == self.cfg.get("profile") else "dot",
@@ -5236,11 +5369,52 @@ class App(tk.Tk):
         self.order = None
         self.refresh_now()
 
+    def unhide(self, key):
+        if key in self.cfg["hidden"]:
+            self.cfg["hidden"].remove(key)
+            save_config(self.cfg)
+        self.hover = None
+        self.order = None
+        self.refresh_now()
+        self.resize()
+        self.render()
+        self.say(f"{pretty_name(key)} is back! \u266a", 1.6)
+
+    def toggle_hidden(self, key):
+        if key in self.cfg["hidden"]:
+            self.cfg["hidden"].remove(key)
+        else:
+            self.cfg["hidden"].append(key)
+        save_config(self.cfg)
+        self.order = None
+        self.refresh_now()
+        self.resize()
+        self.render()
+
+    def open_hidden_panel(self):
+        """Everything you have hidden, with a switch each to show it again."""
+        keys = list(self.cfg["hidden"])
+        items = [{"k": "head", "t": "Hidden programs \u00b7 switch on to show"}]
+        for k in keys:
+            live = k in self.hidden_live
+            items.append({"k": "toggle", "t": pretty_name(k) + ("" if live else "  (not playing)"),
+                          "icon": "eye", "get": lambda k=k: k not in self.cfg["hidden"],
+                          "set": lambda k=k: self.toggle_hidden(k)})
+        items += [{"k": "sep"},
+                  {"k": "act", "t": "Show them all", "icon": "eye", "do": self.unhide_all},
+                  {"k": "foot", "t": "Tip: point at a card and click (-) to hide it"}]
+        if getattr(self, "panel", None) is not None and not self.panel.closed:
+            self.panel.close()
+        box = (self.W - self.p(PAD) - self.p(10), self.strip_top(), self.W - self.p(PAD), self.strip_top())
+        self.panel = Panel(self, box, items, 320)
+
     def unhide_all(self):
         self.cfg["hidden"] = []
         save_config(self.cfg)
         self.order = None
         self.refresh_now()
+        self.resize()
+        self.render()
 
     # -- always on top
     def toggle_topmost(self):
