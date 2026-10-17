@@ -1,159 +1,171 @@
-<div align="center">
-
-<img src="docs/icon.png" alt="Mixie icon" width="96">
-
-# Mixie
-
-**A per-app volume mixer for Windows, with neon sound waves and a pixel buddy who dances to your music.**
-
-Made by [Modda-ctrl](https://github.com/Modda-ctrl)
-
-<img src="docs/header.gif" alt="Mixie header with neon sound waves and the dancing pixel buddy" width="584">
-
-</div>
-
-Mixie gives every program that is playing sound its own slider – Spotify, your browser, your game,
-Discord – in one small window you can park on your second monitor. It was made for one simple
-thing: sliding the music down when the game gets loud, without alt-tabbing into the Windows
-volume mixer.
-
 <p align="center">
-  <img src="docs/screenshot.png" alt="The Mixie window" width="420">
+  <img src="docs/banner.png" alt="Mixie – a per-app volume mixer for Windows with a pixel buddy who dances to your music" width="100%">
 </p>
 
-## Features
+<p align="center">
+  <a href="../../releases/latest"><img src="https://img.shields.io/github/v/release/Modda-ctrl/Mixie?style=for-the-badge&color=ff78be&label=download" alt="Latest release"></a>
+  <img src="https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6?style=for-the-badge&logo=windows&logoColor=white" alt="Windows 10 and 11">
+  <img src="https://img.shields.io/badge/Python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.10 or newer">
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/Modda-ctrl/Mixie?style=for-the-badge&color=8a5cff" alt="MIT license"></a>
+</p>
 
-- **A slider per app.** Every program that plays sound gets a card with its real icon. Click or
-  drag the slider, scroll the mouse wheel over a card, or hit the speaker button to mute it.
-- **Hotkeys that work in-game.** Change the music or the game you are in without leaving it
-  (see [Hotkeys](#hotkeys)).
-- **Profiles.** *Game* turns the music down and the game up, *Music* does the opposite. Set the
-  volumes the way you like and save your own version of each.
-- **Lower the music when someone talks.** Mixie listens to Discord (and TeamSpeak, Mumble, Teams)
-  and dips Spotify and your browser while someone is speaking, then brings them back.
-- **Now playing.** Shows the song, the artist and the tempo (BPM) from Spotify or YouTube, with
-  previous, play/pause and next buttons.
+<p align="center">
+  <a href="#-install"><b>Install</b></a> ·
+  <a href="#-features"><b>Features</b></a> ·
+  <a href="#-hotkeys"><b>Hotkeys</b></a> ·
+  <a href="#-how-it-works"><b>How it works</b></a> ·
+  <a href="CHANGELOG.md"><b>Changelog</b></a>
+</p>
+
+---
+
+**Mixie** gives every program that is playing sound its own slider – Spotify, your browser, your game,
+Discord – in one small window you can park on your second monitor. It was made for one simple thing:
+turning the music down when the game gets loud, without alt-tabbing into the Windows volume mixer.
+
+And while you play, **Mixie** – the pixel buddy in the corner – dances to your music, right on the beat.
+
+<p align="center">
+  <img src="docs/header.gif" alt="Neon sound waves and Mixie dancing" width="584">
+</p>
+
+## ✨ Features
+
+<p align="center">
+  <img src="docs/showcase.png" alt="The Mixie window, in normal and compact mode" width="100%">
+</p>
+
+- **A slider per app.** Every program that plays sound gets a card with its real icon. Drag the slider,
+  scroll over a card, or hit the speaker button to mute it.
+- **Now playing.** Song, artist and tempo from Spotify or YouTube, with previous, play/pause and next.
+- **Profiles.** *Game* turns the music down and the game up, *Music* does the opposite – or save your own.
 - **Switch audio device** between headphones, speakers and monitors in two clicks.
-- **Neon sound waves** in an early-2010s style that follow the bass, mids and treble of whatever
-  is playing, and change colour when the song changes.
-- **Mixie, the pixel buddy**, dances in time with your music: she finds the tempo (BPM) and
-  where the beats fall, and every move, bounce and music note lands on the beat. She knows nine moves – classic, sway, jump,
-  disco, side-step, clap, robot, headbang and spin – and picks the ones that fit the music: calm
-  songs get swaying and clapping, heavy bass gets headbanging and spins. She waits impatiently
-  when nothing is playing, falls asleep after a while, waves when you hover over her and reacts
-  when you click her.
-- **Outfits**: bow, headphones, cat ears, santa hat, witch hat and sunglasses – or *Automatic*,
-  which picks one by season. Her dress follows the colour of the waves.
-- **Compact mode** for a narrower window, **always on top**, and **minimize to the tray**.
-- Remembers its position, so it opens on your second monitor every time.
+- **Compact mode**, **always on top**, **minimize to the tray** – and it remembers where you put it.
 
 <p align="center">
-  <img src="docs/buddy.gif" alt="Mixie dancing through her moves" width="144">
+  <img src="docs/dance.gif" alt="Mixie dancing in time with a 125 BPM song, with the beat lights" width="100%">
+</p>
+
+- **She dances on the beat.** Mixie works out the tempo (BPM) and where the beats fall, so every move,
+  bounce and music note lands in time.
+- **Nine dance moves** – classic, sway, jump, disco, side-step, clap, robot, headbang and spin – picked to fit
+  the music: calm songs get swaying and clapping, heavy bass gets headbanging and spins.
+- **She has a life of her own.** She waits impatiently when nothing plays, falls asleep after a while,
+  waves when you hover over her and has something to say when you click her.
+- **Neon sound waves** in an early-2010s style follow the bass, mids and treble, and change colour
+  with every new song.
+
+<p align="center">
+  <img src="docs/moves.png" alt="Mixie's nine dance moves" width="100%">
 </p>
 
 <p align="center">
-  <img src="docs/moves.png" alt="Mixie's nine dance moves" width="760">
+  <img src="docs/outfits-showcase.png" alt="Six outfits: bow, headphones, cat ears, santa hat, witch hat and sunglasses" width="100%">
 </p>
+
+- **Outfits.** Bow, headphones, cat ears, santa hat, witch hat or sunglasses – or *Automatic*, which picks one
+  by season. Her dress follows the colour of the waves.
 
 <p align="center">
-  <img src="docs/outfits.png" alt="The six outfits" width="640">
+  <img src="docs/gaming.png" alt="Hotkeys that work in-game, and the music stepping aside when someone talks on Discord" width="100%">
 </p>
 
-<p align="center">
-  <img src="docs/menu_outfit.png" alt="Outfit menu" width="400">
-  <img src="docs/compact.png" alt="Compact mode" width="250">
-</p>
+- **Hotkeys that work in-game.** Change the music or the game you are in without leaving it.
+- **The music steps aside when someone talks.** Mixie listens to Discord (and TeamSpeak, Mumble, Teams) and
+  dips Spotify and your browser while someone is speaking, then brings them back.
 
-## Install
+## 📥 Install
 
 You need **Windows 10 or 11** and **Python 3.10 or newer** from
-[python.org](https://www.python.org/downloads/) – tick *Add python.exe to PATH* when you install it.
+[python.org](https://www.python.org/downloads/) – tick *Add python.exe to PATH* during the install.
 
-1. Download **`Install Mixie.bat`** from the [latest release](../../releases) (or from this repo).
-2. Double-click it. It installs Mixie into `%LOCALAPPDATA%\Mixie`, installs the Python packages it
-   needs and starts it.
-3. The first start creates a **Mixie** shortcut on your desktop and in the Start menu. Use that
-   from then on.
+1. Download **`Install Mixie.bat`** from the [latest release](../../releases/latest).
+2. Double-click it. It installs Mixie into `%LOCALAPPDATA%\Mixie`, sets up the Python packages it needs
+   and starts it.
+3. The first start puts a **Mixie** shortcut on your desktop and in the Start menu.
 
 Running the installer again updates Mixie and keeps your settings.
 
-> Windows SmartScreen may warn about a downloaded `.bat` file. The file is plain text – you can
-> open it in Notepad to see exactly what it does before running it.
+> [!NOTE]
+> Windows SmartScreen may warn about a downloaded `.bat` file. It is plain text – open it in Notepad to see
+> exactly what it does before you run it.
 
-### Run from source
+<details>
+<summary><b>Run from source instead</b></summary>
 
 ```bat
-git clone https://github.com/Modda-ctrl/mixie.git
-cd mixie
+git clone https://github.com/Modda-ctrl/Mixie.git
+cd Mixie
 py -m pip install -r requirements.txt
 pyw mixie.py
 ```
 
 Mixie also installs any missing packages by itself on the first start.
+</details>
 
-## Hotkeys
+## ⌨️ Hotkeys
 
-They work everywhere, including inside full-screen games. You can switch them off in the **⋯** menu.
+They work everywhere – including inside full-screen games. Switch them off in the **⋯** menu.
 
 | Keys | Action |
 | --- | --- |
-| `Ctrl` + `Alt` + `Up` / `Down` | Music louder / quieter (Spotify first) |
-| `Ctrl` + `Alt` + `Page Up` / `Page Down` | The program you are in (your game) louder / quieter |
-| `Ctrl` + `Alt` + `M` | Mute / unmute the music |
-| `Ctrl` + `Alt` + `Space` | Play / pause |
-| `Ctrl` + `Alt` + `Left` / `Right` | Previous / next track |
-| `Ctrl` + `Alt` + `1` / `2` | Game profile / Music profile |
+| <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>↑</kbd> / <kbd>↓</kbd> | Music louder / quieter (Spotify first) |
+| <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>Page Up</kbd> / <kbd>Page Down</kbd> | The program you are in (your game) louder / quieter |
+| <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>M</kbd> | Mute / unmute the music |
+| <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>Space</kbd> | Play / pause |
+| <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>←</kbd> / <kbd>→</kbd> | Previous / next track |
+| <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>1</kbd> / <kbd>2</kbd> | Game profile / Music profile |
 
-## Tips
+## 💡 Tips
 
-- **Right-click** a card to hide a program (for example *System sounds*). Right-click again to
-  show hidden programs.
-- **Click the buddy.** Try it when she is asleep, too.
-- The buttons at the top right are **Outfit**, **Audio device**, **Profile** and **⋯** (everything
-  else).
+- The buttons at the top right are **Outfit**, **Audio device**, **Profile** and **⋯** (everything else).
+- **Right-click** a card to hide a program (for example *System sounds*); right-click again to bring it back.
+- **Click Mixie.** Try it while she's asleep, too.
 
-<p align="center"><img src="docs/menu_device.png" alt="Audio device menu" width="520"></p>
+<p align="center">
+  <img src="docs/menu_outfit.png" alt="The outfit menu" width="49%">
+  <img src="docs/menu_device.png" alt="The audio device menu" width="49%">
+</p>
 
-## How it works
+## 🔧 How it works
 
 | What | How |
 | --- | --- |
 | Per-app volume, mute, devices | Windows Core Audio through [pycaw](https://github.com/AndreMiras/pycaw) |
-| Sound waves and beat detection | WASAPI loopback capture through [SoundCard](https://github.com/bastibe/SoundCard) and an FFT with [NumPy](https://numpy.org/) |
-| Tempo (BPM) and beat sync | Spectral-flux onsets, autocorrelation for the tempo (kick and bass count extra) and a comb filter for where the beats fall |
-| Now playing | The window titles of Spotify and your browser – no extra permissions or APIs |
+| Sound waves | WASAPI loopback capture through [SoundCard](https://github.com/bastibe/SoundCard) and an FFT with [NumPy](https://numpy.org/) |
+| Tempo and beat sync | Spectral-flux onsets, autocorrelation for the tempo (kick drum and bass count extra) and a comb filter for where the beats fall |
+| Now playing | The window titles of Spotify and your browser – no logins, permissions or APIs |
 | Media buttons | Standard Windows media keys |
-| Lowering the music | The peak level of the voice chat app's audio session |
+| Lowering the music | The live level of the voice-chat app's audio session |
 | Tray icon | [pystray](https://github.com/moses-palmer/pystray) |
-| UI | Tkinter, with everything drawn with [Pillow](https://python-pillow.org/) at 3× and scaled down for smooth edges |
+| Interface | Tkinter, with everything drawn by [Pillow](https://python-pillow.org/) at 3× and scaled down for smooth edges |
 
-The waves, the tray icon and song detection are optional: if a package is missing, Mixie still runs.
-Only prebuilt packages are installed (`--only-binary`), so nothing is ever compiled on your machine.
+The waves, the tray icon and song detection are optional – if a package is missing, Mixie still runs.
+Only prebuilt packages are installed (`--only-binary`), so nothing is compiled on your machine.
 
-## Troubleshooting
+## 🩺 Troubleshooting
 
-- **Something went wrong.** Mixie writes errors to `crash_log.txt` in `%LOCALAPPDATA%\Mixie`.
-  If it closed unexpectedly, it starts in a safe mode next time (without the audio capture and
-  song detection). Please [open an issue](../../issues) and attach the log.
-- **A hotkey does nothing.** Another program may already use it. **⋯ → Show hotkeys…** lists the
-  ones that are taken.
-- **A game has no icon.** Some games with anti-cheat do not let other programs read their icon,
-  so Mixie shows a letter instead.
+- **Mixie closed or something went wrong.** Errors are written to `crash_log.txt` in `%LOCALAPPDATA%\Mixie`.
+  After an unexpected close, Mixie starts in a safe mode (without audio capture and song detection).
+  Please [open an issue](../../issues/new/choose) and paste the log.
+- **A hotkey does nothing.** Another program may already use it – **⋯ → Show hotkeys…** lists the taken ones.
+- **A game shows a letter instead of its icon.** Some games with anti-cheat don't let other programs read
+  their icon.
 
-## Building the installer
+## 🛠️ Building the installer
 
-`Install Mixie.bat` is one file that contains the installer and `mixie.py`. After changing
+`Install Mixie.bat` is a single file that contains both the installer and `mixie.py`. After changing
 `mixie.py`, rebuild it with:
 
 ```bat
 py installer\build_installer.py
 ```
 
-## Credits
+## ❤️ Credits
 
-Mixie is made by **[Modda-ctrl](https://github.com/Modda-ctrl)** – the app, the pixel art and
-the dance moves. Bug reports and ideas are welcome in the [issues](../../issues).
+Mixie is made by **[Modda-ctrl](https://github.com/Modda-ctrl)** – the app, the pixel art and the dance moves.
+Bug reports and ideas are very welcome in the [issues](../../issues/new/choose).
 
-## License
+## 📄 License
 
 [MIT](LICENSE) © Modda-ctrl

@@ -218,3 +218,12 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Mixie: files it creates next to itself while running
+mixie_config.json
+mixie.ico
+crash_log*.txt
+start_log.txt
+.running
+.extras_installed
+*.bak

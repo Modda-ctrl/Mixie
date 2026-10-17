@@ -1,4 +1,4 @@
-# Mixie installer – made by Modda-ctrl (https://github.com/Modda-ctrl/mixie)
+# Mixie installer – made by Modda-ctrl (https://github.com/Modda-ctrl/Mixie)
 # Run by "Install Mixie.bat". Unpacks the version of Mixie that is embedded in the .bat file,
 # installs it (or updates an existing install) and starts it.
 import base64
@@ -125,7 +125,7 @@ def main():
     version = version.group(1).decode() if version else "?"
 
     say(f"=== {APP} {version} - install / update ===")
-    say("    made by Modda-ctrl - https://github.com/Modda-ctrl/mixie")
+    say("    made by Modda-ctrl - https://github.com/Modda-ctrl/Mixie")
     say()
     target_dir, why = find_install_dir()
     say(f"Folder: {target_dir}")
