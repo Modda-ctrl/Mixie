@@ -60,7 +60,7 @@ jobs:
 
       - name: Build provenance (proves the exe was built here, from this code)
         if: github.event_name != 'pull_request'
-        uses: actions/attest-build-provenance@v1
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: dist/Mixie.exe
 
