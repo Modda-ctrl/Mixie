@@ -34,7 +34,7 @@ import tkinter as tk
 from tkinter import messagebox
 
 APP_NAME = "Mixie"
-APP_VERSION = "1.2.3"
+APP_VERSION = "1.3.0"
 AUTHOR = "Modda-ctrl"
 REPO_URL = "https://github.com/Modda-ctrl/Mixie"
 
@@ -280,9 +280,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPT = os.path.abspath(__file__)
 CONFIG_PATH = os.path.join(HERE, "mixie_config.json")
 ICON_PATH = os.path.join(HERE, "mixie.ico")
-ICON_VERSION = 3
+ICON_VERSION = 4
 REFRESH_MS = 1500
-DANCE_MS = 140
 WAVE_MS = 33  # sound waves: ~30 frames per second
 SS = 3  # supersampling: shapes are drawn 3x larger and scaled down = smooth edges
 
@@ -416,20 +415,18 @@ HOTKEYS = [
 MEDIA_VK = {"play": 0xB3, "next": 0xB0, "prev": 0xB1}
 
 # ------------------------------------------------------------ outfits
-OUTFITS = ["auto", "bow", "headphones", "cat", "santa", "witch", "sunglasses"]
-OUTFIT_NAMES = {"auto": "Automatic (by season)", "bow": "Bow", "headphones": "Headphones",
-                "cat": "Cat ears", "santa": "Santa hat", "witch": "Witch hat", "sunglasses": "Sunglasses"}
+OUTFITS = ["auto", "bow", "headphones", "cat", "bunny", "crown", "flowers",
+           "beanie", "cap", "sunglasses", "horns", "witch", "santa"]
+OUTFIT_NAMES = {"auto": "Automatic", "bow": "Bow", "headphones": "Headphones",
+                "cat": "Cat ears", "santa": "Santa hat", "witch": "Witch hat", "sunglasses": "Sunglasses",
+                "crown": "Crown", "bunny": "Bunny ears", "beanie": "Beanie", "flowers": "Flower crown",
+                "cap": "Cap", "horns": "Devil horns"}
 
 
 def season_outfit():
     m = time.localtime().tm_mon
-    if m == 12:
-        return "santa"
-    if m == 10:
-        return "witch"
-    if m in (6, 7, 8):
-        return "sunglasses"
-    return "bow"
+    return {12: "santa", 1: "beanie", 2: "beanie", 3: "bunny", 4: "bunny", 5: "flowers",
+            6: "sunglasses", 7: "sunglasses", 8: "sunglasses", 10: "witch", 11: "beanie"}.get(m, "bow")
 
 
 def pretty_name(key):
@@ -534,13 +531,16 @@ def make_app_icon(size=256):
     ImageDraw.Draw(tile).rounded_rectangle((s * 0.012, s * 0.012, s * 0.988, s * 0.988), radius=int(s * 0.22),
                                            outline=(255, 255, 255, 45), width=max(2, int(s * 0.012)))
     tile = tile.resize((size, size), LANCZOS)
-    k = int(size * 0.9 // 22)
-    if k >= 1:      # whole pixels: crisp pixel art
-        h = head.resize((22 * k, 19 * k), NEAREST)
-    else:           # tiny sizes: scale down smoothly
-        h = head.resize((22 * 11, 19 * 11), NEAREST).resize((round(size * 0.9), round(size * 0.9 * 19 / 22)),
-                                                            LANCZOS)
-    tile.alpha_composite(h, ((size - h.width) // 2, (size - h.height) // 2 + max(0, size // 64)))
+    head = head.crop(head.getbbox())          # only the pixels that are her
+    hw, hh = head.size
+    k = size * 0.96 / max(hw, hh)                # she fills almost the whole tile
+    if k >= 1 and int(k) * max(hw, hh) >= size * 0.86:   # whole pixels: crisp pixel art
+        h = head.resize((hw * int(k), hh * int(k)), NEAREST)
+    else:           # in between: scale up crisply, then down smoothly to the exact size
+        big = max(1, math.ceil(k)) * 4
+        h = head.resize((hw * big, hh * big), NEAREST).resize((max(1, round(hw * k)), max(1, round(hh * k))),
+                                                             LANCZOS)
+    tile.alpha_composite(h, ((size - h.width) // 2, size - h.height - max(0, round(size * 0.02))))
     return tile
 
 
@@ -811,6 +811,8 @@ PAL = {
     "O": (74, 53, 96), "R": (255, 79, 122), "Y": (255, 216, 74),
     "P": (88, 44, 130), "p": (130, 74, 186), "G": (255, 150, 40), "g": (72, 74, 92),
     "Q": (34, 30, 48), "q": (130, 190, 255),
+    "T": (64, 208, 192), "t": (30, 142, 140), "V": (110, 214, 110), "v": (52, 150, 76),
+    "N": (232, 58, 72), "n": (150, 28, 48), "Z": (214, 150, 28), "C": (255, 104, 72), "c": (186, 58, 44),
 }
 
 
@@ -880,6 +882,60 @@ def draw_accessory(put, ox, oy, acc):
                     at(hx, hy, "g")
             for hy in (6, 7, 8):
                 at(side + 1, hy, "R")
+    elif acc == "crown":           # golden crown with three points and gems
+        span(0, 4, 11, "Z")
+        span(-1, 4, 11, "Y")
+        for hx in (4, 11):
+            at(hx, -2, "Y")
+            at(hx, -3, "Y")
+        span(-2, 7, 8, "Y")
+        span(-3, 7, 8, "Y")
+        at(7, -4, "Y")
+        at(8, -4, "Y")
+        at(5, -1, "R")
+        at(10, -1, "q")
+        at(7, -1, "W")
+    elif acc == "bunny":           # long bunny ears, the right one a little bent
+        for a, inner, tilt in ((3, 4, 0), (10, 11, 1)):
+            for hy in range(-4, 1):
+                dx = tilt if hy < -2 else 0
+                span(hy, a + dx, a + 2 + dx, "W")
+                if -4 < hy < 0:
+                    at(inner + dx, hy, "L")
+            at(inner + tilt, -5, "W")
+    elif acc == "beanie":          # knitted hat with a pompom
+        span(-2, 5, 10, "T")
+        span(-1, 3, 12, "T")
+        span(0, 2, 13, "T")
+        for hy in (1, 2):
+            for hx in range(1, 15):
+                at(hx, hy, "t" if hx % 2 else "T")     # ribbed edge
+        at(6, -1, "t")
+        at(9, 0, "t")
+        for hx, hy in ((7, -3), (8, -3), (7, -4), (8, -4), (6, -3), (9, -3)):
+            at(hx, hy, "W")
+    elif acc == "flowers":         # flower crown
+        span(1, 1, 14, "V")
+        span(0, 3, 12, "v")
+        for (hx, hy), petal in (((2, 1), "R"), ((6, -1), "Y"), ((10, -1), "L"), ((14, 1), "W")):
+            for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+                at(hx + dx, hy + dy, petal)
+            at(hx, hy, "Y" if petal != "Y" else "G")
+    elif acc == "cap":             # baseball cap, peak to the side
+        span(-2, 5, 10, "C")
+        span(-1, 3, 12, "C")
+        span(0, 2, 13, "C")
+        span(1, 1, 14, "C")
+        span(2, 9, 18, "c")
+        at(7, -1, "W")
+        at(8, -1, "W")
+        at(4, -1, "c")
+        at(5, -2, "c")
+    elif acc == "horns":           # little devil horns
+        for hx, hy in ((3, 0), (3, -1), (2, -2), (2, -3), (12, 0), (12, -1), (13, -2), (13, -3)):
+            at(hx, hy, "N")
+        for hx, hy in ((4, 0), (11, 0)):
+            at(hx, hy, "n")
 HEAD = [
     "....KKKKKKKK....",
     "..KKHHHHHHHHKK..",
@@ -911,6 +967,11 @@ ARMS = {
     "clap": [(-1, 0), (-1, 1), (0, 2), (1, 2), (2, 2)],            # hands together in front
     "robot_up": [(-1, 0), (-2, 0), (-3, 0), (-3, -1), (-3, -2)],   # robot: elbow out, hand up
     "robot_down": [(-1, 0), (-2, 0), (-3, 0), (-3, 1), (-3, 2)],   # robot: elbow out, hand down
+    "bent": [(-1, 0), (-2, 0), (-3, 0), (-4, -1), (-4, -2), (-4, -3)],   # elbow out, hand up by the chin
+    "front": [(-1, 0), (-1, 1), (0, 2), (1, 2)],                   # hand in front of her tummy
+    "pump": [(-1, 0), (-2, -1), (-3, -2), (-4, -2), (-5, -3), (-5, -4), (-5, -5), (-6, -5)],  # fist up high
+    "low": [(-1, 0), (-2, 1), (-3, 2), (-4, 2)],                   # arm out low
+    "high": [(-1, 0), (-2, -1), (-3, -1), (-4, -1), (-5, -2)],     # arm out high
 }
 FRAMES = [
     dict(la="up", ra="up", b=0, sway=0, legs="both", note="l", sing=True),
@@ -930,9 +991,14 @@ BLINK = dict(IDLE, eyes="closed")
 SIGH = dict(IDLE, la="down", ra="down", b=1, eyes="closed", sing=True)
 SLUMP = dict(IDLE, la="down", ra="down")
 # No music: stands and waits, taps her foot, blinks and sighs (~200 ms per frame)
-IDLE_FRAMES = ([IDLE] * 4 + [TAP, IDLE, TAP, IDLE, TAP] + [IDLE] * 3 + [BLINK] + [IDLE] * 5
+LOOK_L = dict(IDLE, eyes="left", la="down")
+LOOK_R = dict(IDLE, eyes="right", la="down")
+STRETCH = dict(IDLE, la="pump", ra="pump", b=0, eyes="closed", mouth="open")
+IDLE_FRAMES = ([IDLE] * 4 + [TAP, IDLE, TAP, IDLE, TAP] + [IDLE] * 3 + [BLINK] + [IDLE] * 3
+               + [LOOK_L] * 4 + [IDLE] + [LOOK_R] * 4 + [IDLE] * 3
                + [SIGH] * 3 + [SLUMP] * 4 + [dict(SLUMP, eyes="closed")] + [SLUMP] * 4
-               + [TAP, IDLE, TAP] + [IDLE] * 2)
+               + [TAP, IDLE, TAP] + [IDLE] * 3 + [BLINK] + [IDLE] * 2
+               + [dict(STRETCH, b=1)] + [STRETCH] * 4 + [dict(IDLE, eyes="happy")] * 3 + [IDLE] * 2)
 IDLE_MS = 200
 
 # Calm music: sways gently
@@ -996,15 +1062,70 @@ SPIN_FRAMES = [
     dict(la="out", ra="out", b=1, sway=0, legs="both", eyes="happy"),
     dict(la="up", ra="up", b=0, sway=0, legs="jump", eyes="happy", sing=True),
 ]
+TWIST_FRAMES = [   # twist the hips, arms bent
+    dict(la="bent", ra="front", b=1, sway=2, legs="left", dx=1),
+    dict(la="bent", ra="front", b=0, sway=1, legs="both"),
+    dict(la="front", ra="bent", b=1, sway=-2, legs="right", dx=-1),
+    dict(la="front", ra="bent", b=0, sway=-1, legs="both"),
+]
+CHEER_FRAMES = [   # pom-pom cheer: fists up one after the other, jump on the fourth
+    dict(la="pump", ra="hips", b=1, sway=1, legs="both", sing=True),
+    dict(la="out", ra="out", b=0, sway=0, legs="both"),
+    dict(la="hips", ra="pump", b=1, sway=-1, legs="both", sing=True),
+    dict(la="out", ra="out", b=0, sway=0, legs="both"),
+    dict(la="pump", ra="hips", b=1, sway=1, legs="both", sing=True),
+    dict(la="out", ra="out", b=0, sway=0, legs="both"),
+    dict(la="up", ra="up", b=0, sway=0, legs="jump", sing=True, note="l"),
+    dict(la="up", ra="up", b=1, sway=0, legs="both", mouth="open"),
+]
+KICK_FRAMES = [    # high kicks, left and right
+    dict(la="out", ra="high", b=0, sway=1, legs="kickl"),
+    dict(la="out", ra="out", b=1, sway=0, legs="both"),
+    dict(la="high", ra="out", b=0, sway=-1, legs="kickr", sing=True),
+    dict(la="out", ra="out", b=1, sway=0, legs="both"),
+]
+MOONWALK_FRAMES = [   # glides backwards to one side and back again
+    dict(la="low", ra="front", b=0, sway=-1, legs="left", dx=x, mouth="small" if i % 4 else None)
+    if i % 2 == 0 else
+    dict(la="front", ra="low", b=1, sway=1, legs="right", dx=x)
+    for i, x in enumerate((0, -1, -2, -2, -1, 0, 1, 2, 2, 1))
+]
+BOP_FRAMES = [     # nods along, calm
+    dict(la="hips", ra="hips", b=0, sway=0, legs="both", hb=1),
+    dict(la="hips", ra="hips", b=0, sway=1, legs="right"),
+    dict(la="hips", ra="hips", b=0, sway=0, legs="both", hb=1),
+    dict(la="hips", ra="hips", b=0, sway=-1, legs="left", sing=True),
+]
+PUMP_FRAMES = [    # fist pump on the beat
+    dict(la="hips", ra="pump", b=1, sway=0, legs="both", mouth="open"),
+    dict(la="hips", ra="out", b=0, sway=1, legs="left"),
+    dict(la="hips", ra="pump", b=1, sway=0, legs="both", mouth="open", note="r"),
+    dict(la="hips", ra="out", b=0, sway=-1, legs="right"),
+]
+WAVEARMS_FRAMES = [   # arms ripple like a wave from one side to the other
+    dict(la="high", ra="low", b=0, sway=-1, legs="both"),
+    dict(la="out", ra="out", b=1, sway=0, legs="right"),
+    dict(la="low", ra="high", b=0, sway=1, legs="both", sing=True),
+    dict(la="out", ra="out", b=1, sway=0, legs="left"),
+]
+SQUAT_FRAMES = [   # bounce down low, arms forward
+    dict(la="front", ra="front", b=2, sway=0, legs="both"),
+    dict(la="out", ra="out", b=0, sway=0, legs="both", sing=True),
+    dict(la="front", ra="front", b=2, sway=0, legs="both"),
+    dict(la="up", ra="up", b=0, sway=0, legs="jump", note="l"),
+]
 DANCE_MOVES = {"classic": FRAMES, "sway": CALM_FRAMES, "jump": HYPE_FRAMES, "disco": DISCO_FRAMES,
                "sidestep": SIDESTEP_FRAMES, "clap": CLAP_FRAMES, "robot": ROBOT_FRAMES,
-               "headbang": HEADBANG_FRAMES, "spin": SPIN_FRAMES}
-# Frames per beat for each move when she follows the tempo (sway is slow: one frame per beat)
-MOVE_FPB = {"sway": 1}
+               "headbang": HEADBANG_FRAMES, "spin": SPIN_FRAMES, "twist": TWIST_FRAMES,
+               "cheer": CHEER_FRAMES, "kick": KICK_FRAMES, "moonwalk": MOONWALK_FRAMES, "bop": BOP_FRAMES,
+               "pump": PUMP_FRAMES, "wavearms": WAVEARMS_FRAMES, "squat": SQUAT_FRAMES}
+# Frames per beat for each move when she follows the tempo (sway and bop are slow: one frame per beat)
+MOVE_FPB = {"sway": 1, "bop": 1}
 # Which moves fit which kind of music
-MOVE_POOLS = {"calm": ["sway", "clap", "sidestep"],
-              "dance": ["classic", "disco", "sidestep", "clap", "robot"],
-              "hype": ["jump", "headbang", "spin", "disco"]}
+MOVE_POOLS = {"calm": ["sway", "clap", "sidestep", "bop", "twist", "wavearms"],
+              "dance": ["classic", "disco", "sidestep", "clap", "robot", "twist", "moonwalk", "kick",
+                        "wavearms", "squat"],
+              "hype": ["jump", "headbang", "spin", "disco", "pump", "cheer", "kick", "squat"]}
 
 # Waves when the mouse is over her
 WAVE_FRAMES = [
@@ -1019,7 +1140,6 @@ SLEEP_B = dict(SLEEP_A, b=2)
 SLEEP_FRAMES = [SLEEP_A] * 4 + [SLEEP_B] * 4
 SLEEP_MS = 260
 SLEEP_AFTER = 45          # seconds without music before she falls asleep
-BLINK_CHANCE = 0.045      # chance per frame that she blinks while dancing
 
 # Speech bubbles. A ♪ at the end of the text is drawn as a pixel note.
 BUBBLE_TEXT = "Play some music\nso I can dance! \u266a"
@@ -1089,6 +1209,14 @@ def make_sprite(f, style=None):
     if eyes == "happy":
         for ex in (4, 11):       # small corners in the eyes = ^
             put(ox + ex, oy + 10, "K")
+    elif eyes in ("left", "right"):   # looking to the side: the pupils move one pixel
+        d = -1 if eyes == "left" else 1
+        for ex in (4, 10):             # left column of each eye
+            for y in (8, 9, 10):
+                put(ox + ex + (1 if d < 0 else 0), oy + y, "S")     # the side she looks away from
+                put(ox + ex + d + (1 if d < 0 else 0), oy + y, "E")
+                put(ox + ex + d + (0 if d < 0 else 1), oy + y, "E")
+            put(ox + ex + d + 1, oy + 9, "W")
     mouth = None if back else f.get("mouth")
     if mouth == "small":
         put(ox + 7, oy + 11, "S")
@@ -1122,8 +1250,16 @@ def make_sprite(f, style=None):
 
     # legs (the feet stay put when she sways)
     feet_y = 26 + SPRITE_TOP
-    for lx, lifted, shoe in ((5, f["legs"] in ("left", "jump"), (-1, 0, 1)),
-                             (9, f["legs"] in ("right", "jump"), (0, 1, 2))):
+    for lx, lifted, shoe, kick, out in ((5, f["legs"] in ("left", "jump"), (-1, 0, 1), f["legs"] == "kickl", -1),
+                                        (9, f["legs"] in ("right", "jump"), (0, 1, 2), f["legs"] == "kickr", 1)):
+        if kick:   # leg kicked out to the side
+            for n, y in enumerate(range(oy + 22, oy + 25)):
+                put(ox + lx + out * n, y, "S")
+                put(ox + lx + 1 + out * n, y, "S")
+            for dx in (0, 1):
+                put(ox + lx + out * 3 + dx + (0 if out < 0 else 1), oy + 24, "O")
+            put(ox + lx + out * 3 + (0 if out < 0 else 2), oy + 23, "O")
+            continue
         bottom = feet_y - 1 - (1 if lifted else 0)
         for y in range(oy + 22, bottom + 1):
             put(ox + lx, y, "S")
@@ -1162,6 +1298,106 @@ def make_sprite(f, style=None):
             if c:
                 img.putpixel((x, y), pal[c] + (255,))
     return img
+
+
+
+class LazyFrames:
+    """A list of sprite images that are only drawn the first time they are shown.
+    Changing outfit or song colour then costs nothing up front (no stutter)."""
+
+    def __init__(self, frames, build):
+        self.frames, self.build = frames, build
+        self.imgs = [None] * len(frames)
+
+    def __len__(self):
+        return len(self.frames)
+
+    def __getitem__(self, i):
+        img = self.imgs[i]
+        if img is None:
+            img = self.imgs[i] = self.build(self.frames[i])
+        return img
+
+
+def with_eyes(f, eyes):
+    """The same frame with other eyes (closed eyes in a frame stay closed)."""
+    return f if f.get("eyes") == "closed" else dict(f, eyes=eyes)
+
+
+class BeatClock:
+    """Mixie's own sense of the beat. It runs smoothly by itself (so she never freezes or
+    skips) and is gently pulled into line with the tempo the analyser hears. When the tempo
+    is lost for a moment - a break without drums - it keeps going for a few seconds."""
+
+    LOCK_CONF, KEEP_CONF = 0.35, 0.16   # confidence needed to find a tempo / to keep it
+    HOLD = 6.0                           # seconds it keeps the beat after losing it
+
+    def __init__(self):
+        self.phase = 0.0        # beats since start (only ever goes up)
+        self.L = 0.5            # seconds per (danced) beat
+        self.t = None
+        self.locked = False
+        self.lost_t = None
+        self.mult = 1.0         # 2 = half time for very fast songs, 0.5 = double time for slow ones
+        self.bpm = 0.0          # heard tempo, smoothed
+        self.shown = None       # the number on screen (only changes when the tempo really does)
+        self.cand, self.cand_t = None, 0.0   # a new tempo waiting to be confirmed
+
+    def update(self, now, an, playing, free_L):
+        dt = 0.0 if self.t is None else min(0.25, max(0.0, now - self.t))
+        self.t = now
+        fresh = bool(an.bpm) and an.beat_len > 0 and now - an.updated < 0.6
+        good = playing and fresh and an.tempo_conf > (self.KEEP_CONF if self.locked else self.LOCK_CONF)
+        target = None
+        if good and self.locked and abs(an.beat_len * self.mult / self.L - 1) > 0.08:
+            # A different tempo than the one she dances to. Only switch when it is clear and
+            # stays for a while - breaks and fills often fool the tracker for a moment.
+            if an.tempo_conf < self.LOCK_CONF or self.cand is None or abs(an.beat_len / self.cand - 1) > 0.04:
+                self.cand, self.cand_t = an.beat_len, now
+                good = False
+            elif now - self.cand_t < 2.0:
+                good = False
+        else:
+            self.cand = None
+        if good:
+            bpm = 60.0 / an.beat_len
+            if self.mult == 1.0:
+                self.mult = 2.0 if bpm > 158 else (0.5 if bpm < 72 else 1.0)
+            elif self.mult == 2.0 and bpm < 145 or self.mult == 0.5 and bpm > 80:
+                self.mult = 1.0
+            tL = an.beat_len * self.mult
+            target = (now - an.beat_at) / tL       # where the heard beat is, in beats
+            if not self.locked or abs(tL / self.L - 1) > 0.08:   # new tempo: jump to it
+                self.L = tL
+                self.phase += (target - self.phase) % 1.0         # forward to the next beat
+                self.bpm = bpm
+            self.L += (tL - self.L) * min(1.0, dt * 2.0)
+            self.bpm += (bpm - self.bpm) * min(1.0, dt * 1.5)
+            self.locked, self.lost_t = True, None
+        elif self.locked:
+            if self.lost_t is None:
+                self.lost_t = now
+            if not playing or now - self.lost_t > self.HOLD:
+                self.locked = False
+        if not self.locked:
+            self.L += (free_L - self.L) * min(1.0, dt * 1.5)
+            self.shown = None
+        step = dt / self.L
+        if target is not None:
+            err = (target - self.phase + 0.5) % 1.0 - 0.5          # -0.5 .. 0.5 beats
+            step += err * min(1.0, dt * 4.0)
+        self.phase += max(step, 0.35 * dt / self.L)                # never stands still
+        if self.locked and (self.shown is None or abs(self.bpm - self.shown) > 1.6):
+            self.shown = int(round(self.bpm))
+
+    LEAD = 0.03   # seconds: show each move a touch early - the picture is only updated every
+                  # ~33 ms and the sound is heard a little before it is analysed
+
+    def now_phase(self):
+        return self.phase + self.LEAD / self.L
+
+    def frac(self):
+        return self.now_phase() % 1.0
 
 
 # ---------------------------------------------------------------- audio control
@@ -1322,10 +1558,11 @@ class TempoTracker:
         i = int(np.argmax(score))
         lag = float(lags[i])
         if 0 < i < len(lags) - 1:        # parabolic interpolation for a finer tempo
-            a, b, c = score[i - 1], score[i], score[i + 1]
+            a, b, c = float(score[i - 1]), float(score[i]), float(score[i + 1])   # (plain floats: see below)
             d = a - 2 * b + c
-            if d < 0:
-                lag += 0.5 * (a - c) / d
+            if d < -1e-6:      # (a nearly flat peak gives a huge, meaningless offset)
+                lag += max(-0.5, min(0.5, 0.5 * (a - c) / d))
+        lag = min(max(lag, float(lo)), float(hi))
         conf = float(ac[int(round(lag))])
         bpm = 60.0 * self.fps / lag
         self.conf = 0.7 * self.conf + 0.3 * max(0.0, conf)
@@ -1342,7 +1579,10 @@ class TempoTracker:
             if self._cand_n >= 3:
                 self.bpm, self._cand_n = bpm, 0
                 self.anchor = None
-        self.period = 60.0 * self.fps / self.bpm
+        # NumPy 2 keeps float32 when mixed with Python floats. A wall-clock time in float32 is
+        # only accurate to ~2 minutes, which wrecked the beat timing - so keep plain floats here.
+        self.bpm = float(self.bpm)
+        self.period = float(60.0 * self.fps / self.bpm)
 
         # beat phase: which offset lines up best with the onsets over the last 4 beats
         P = self.period
@@ -1360,7 +1600,9 @@ class TempoTracker:
             self.anchor = float(new_anchor)
         else:
             err = ((new_anchor - self.anchor) / P + 0.5) % 1.0 - 0.5
-            self.anchor += err * P * 0.35
+            self.anchor = float(self.anchor + err * P * 0.5)
+        # keep the anchor on a recent beat, so a tiny tempo error can't add up over time
+        self.anchor += round((self.count - 1 - self.anchor) / P - 0.5) * P
 
 
 class Analyzer:
@@ -1409,18 +1651,25 @@ class Analyzer:
                 bass_avg = 0.0
                 last_beat = 0.0
                 last_check = time.time()
+                pending = np.zeros(0, dtype=np.float32)
+                received, lag_est = 0, None
                 with mic.recorder(samplerate=sr, blocksize=block) as rec:
                     self.ok = True
                     while True:
                         data = rec.record(numframes=block)
                         mono = data.mean(axis=1) if data.ndim > 1 else data
-                        k = len(mono)
-                        if k:
-                            if k >= n:
-                                buf[:] = mono[-n:]
-                            else:
-                                buf[:-k] = buf[k:]
-                                buf[-k:] = mono
+                        # Audio can arrive in uneven chunks. Cut it into exact blocks, so every
+                        # step of the tempo tracker is exactly the same length of time.
+                        pending = np.concatenate((pending, mono.astype(np.float32)))
+                        # Sound card clock -> wall clock. Audio can arrive late in bursts, never
+                        # early, so the smallest delay seen (allowed to creep up slowly) is the truth.
+                        received += len(mono)
+                        lag_now = time.time() - received / sr
+                        lag_est = lag_now if lag_est is None else min(lag_now, lag_est + 0.0003)
+                        while len(pending) >= block:
+                            hop, pending = pending[:block], pending[block:]
+                            buf[:-block] = buf[block:]
+                            buf[-block:] = hop
                             spec = np.abs(np.fft.rfft(buf * window))
                             # onset strength: how much the (log) spectrum grew since last time
                             lm = np.log1p(spec[:flux_top] * 10.0)
@@ -1430,11 +1679,12 @@ class Analyzer:
                             if tempo.count % 24 == 0:          # ~4 times a second
                                 tempo.estimate()
                                 if tempo.bpm and tempo.anchor is not None:
-                                    t_last = time.time() - self.LATENCY
-                                    self.beat_len = tempo.period / fps
-                                    self.beat_at = t_last - (tempo.count - 1 - tempo.anchor) / fps
-                                    self.bpm = tempo.bpm
-                                self.tempo_conf = tempo.conf
+                                    # when this hop was heard (the audio still waiting came after it)
+                                    t_last = lag_est + (received - len(pending)) / sr - self.LATENCY
+                                    self.beat_len = float(tempo.period / fps)
+                                    self.beat_at = float(t_last - (tempo.count - 1 - tempo.anchor) / fps)
+                                    self.bpm = float(tempo.bpm)
+                                self.tempo_conf = float(tempo.conf)
                             vals = []
                             for i, m in enumerate(masks):
                                 e = float(np.sqrt(np.mean(spec[m] ** 2)))
@@ -2023,6 +2273,310 @@ def sx(box):
     return [v * SS for v in box]
 
 
+# ---------------------------------------------------------------- pop-up panels (settings, outfits)
+
+PANEL_BG = (24, 25, 31, 255)
+PANEL_HOVER = (42, 44, 53, 255)
+PANEL_LINE = (255, 255, 255, 22)
+PANEL_KEY = "#010203"      # see-through colour, gives the panel rounded corners on Windows
+
+
+def draw_panel_icon(d, cx, cy, s, kind, color, w):
+    """Small line icons for the settings panel. s = icon size (in the drawing's pixels)."""
+    h = s / 2
+    if kind == "pin":        # always on top: a push pin
+        d.ellipse((cx - h * 0.55, cy - h, cx + h * 0.55, cy - h * 0.05), outline=color, width=w)
+        d.line((cx, cy - h * 0.05, cx, cy + h), fill=color, width=w)
+        d.line((cx - h * 0.8, cy - h * 0.05, cx + h * 0.8, cy - h * 0.05), fill=color, width=w)
+    elif kind == "compact":  # two short bars
+        for dy in (-0.45, 0.25):
+            d.rounded_rectangle((cx - h, cy + dy * h - h * 0.25, cx + h, cy + dy * h + h * 0.25),
+                                radius=h * 0.2, outline=color, width=w)
+    elif kind == "tray":     # a window with a bar at the bottom
+        d.rounded_rectangle((cx - h, cy - h * 0.8, cx + h, cy + h * 0.8), radius=h * 0.25, outline=color, width=w)
+        d.line((cx - h, cy + h * 0.3, cx + h, cy + h * 0.3), fill=color, width=w)
+        d.ellipse((cx + h * 0.35, cy + h * 0.45, cx + h * 0.65, cy + h * 0.65), fill=color)
+    elif kind == "voice":    # microphone
+        d.rounded_rectangle((cx - h * 0.35, cy - h, cx + h * 0.35, cy + h * 0.25), radius=h * 0.35,
+                            outline=color, width=w)
+        d.arc((cx - h * 0.75, cy - h * 0.5, cx + h * 0.75, cy + h * 0.6), 0, 180, fill=color, width=w)
+        d.line((cx, cy + h * 0.6, cx, cy + h), fill=color, width=w)
+    elif kind == "keys":     # keyboard
+        d.rounded_rectangle((cx - h, cy - h * 0.6, cx + h, cy + h * 0.6), radius=h * 0.2, outline=color, width=w)
+        for i in range(4):
+            x = cx - h * 0.55 + i * h * 0.37
+            d.rectangle((x - w / 2, cy - h * 0.25 - w / 2, x + w / 2, cy - h * 0.25 + w / 2), fill=color)
+        d.line((cx - h * 0.45, cy + h * 0.2, cx + h * 0.45, cy + h * 0.2), fill=color, width=w)
+    elif kind == "eye":
+        d.ellipse((cx - h, cy - h * 0.55, cx + h, cy + h * 0.55), outline=color, width=w)
+        d.ellipse((cx - h * 0.28, cy - h * 0.28, cx + h * 0.28, cy + h * 0.28), fill=color)
+    elif kind == "link":     # shortcut arrow
+        d.rounded_rectangle((cx - h, cy - h * 0.6, cx + h * 0.6, cy + h), radius=h * 0.2, outline=color, width=w)
+        d.line((cx - h * 0.1, cy + h * 0.1, cx + h, cy - h), fill=color, width=w)
+        d.line((cx + h * 0.3, cy - h, cx + h, cy - h, cx + h, cy - h * 0.3), fill=color, width=w)
+    elif kind == "info":
+        d.ellipse((cx - h, cy - h, cx + h, cy + h), outline=color, width=w)
+        d.line((cx, cy - h * 0.1, cx, cy + h * 0.5), fill=color, width=w)
+        d.ellipse((cx - w * 0.7, cy - h * 0.5 - w * 0.7, cx + w * 0.7, cy - h * 0.5 + w * 0.7), fill=color)
+    elif kind == "power":
+        d.arc((cx - h, cy - h * 0.9, cx + h, cy + h * 1.1), -60, 240, fill=color, width=w)
+        d.line((cx, cy - h, cx, cy + h * 0.05), fill=color, width=w)
+    elif kind == "star":     # "by season"
+        pts = []
+        for i in range(10):
+            r = h if i % 2 == 0 else h * 0.45
+            a = -math.pi / 2 + i * math.pi / 5
+            pts.append((cx + r * math.cos(a), cy + r * math.sin(a)))
+        d.polygon(pts, fill=color)
+
+
+class Panel(tk.Toplevel):
+    """A dark pop-up panel drawn like the rest of Mixie: section titles, switches, a segmented
+    control, buttons and a grid of tiles. Closes when you click outside it or press Esc.
+
+    items: dicts with k = "head" | "toggle" | "seg" | "act" | "sep" | "tiles" | "foot"."""
+
+    ROW_H = {"head": 30, "toggle": 40, "act": 38, "seg": 70, "sep": 11, "foot": 34}
+
+    def __init__(self, app, box, items, width=300, on_close=None):
+        super().__init__(app)
+        self.app, self.items, self.on_close_cb = app, items, on_close
+        self.u = app.S
+        self.wl = width
+        self.hover = None
+        self.hits = []
+        self.closed = False
+        self.overrideredirect(True)
+        self.configure(bg=PANEL_KEY)
+        try:
+            self.attributes("-topmost", True)
+            if sys.platform == "win32":
+                self.attributes("-transparentcolor", PANEL_KEY)
+        except Exception:
+            pass
+        self.layout()
+        self.canvas = tk.Canvas(self, width=self.W, height=self.H, highlightthickness=0, bd=0, bg=PANEL_KEY)
+        self.canvas.pack()
+        self.img_item = self.canvas.create_image(0, 0, anchor="nw")
+        self.photo = None
+        # place it under the button, right edges lined up, and keep it on the screen
+        x = int(app.canvas.winfo_rootx() + box[2] - self.W)
+        y = int(app.canvas.winfo_rooty() + box[3] + self.p(6))
+        sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
+        if y + self.H > sh - 8:
+            y = max(8, int(app.canvas.winfo_rooty() + box[1] - self.H - self.p(6)))
+        x = max(8, min(x, sw - self.W - 8))
+        self.geometry(f"{self.W}x{self.H}+{x}+{y}")
+        self.render()
+        self.canvas.bind("<Motion>", self.on_motion)
+        self.canvas.bind("<Leave>", lambda e: self.set_hover(None))
+        self.bind("<Button-1>", self.on_click)
+        self.bind("<Escape>", lambda e: self.close())
+        self.bind("<FocusOut>", lambda e: self.after(80, self.check_focus))
+        self.update_idletasks()
+        try:
+            self.focus_force()
+            self.grab_set()       # clicks outside the panel come here too -> close it
+        except Exception:
+            pass
+
+    def p(self, v):
+        return int(round(v * self.u))
+
+    # -- layout
+    def tile_rows(self, it):
+        return (len(it["tiles"]) + it.get("cols", 4) - 1) // it.get("cols", 4)
+
+    def layout(self):
+        y = 10
+        self.rows = []
+        for it in self.items:
+            if it["k"] == "tiles":
+                h = self.tile_rows(it) * 82 + 8
+            else:
+                h = self.ROW_H[it["k"]]
+            self.rows.append((it, y, y + h))
+            y += h
+        self.W = self.p(self.wl)
+        self.H = self.p(y + 8)
+
+    # -- drawing
+    def render(self):
+        u, S = self.u, SS
+        W, H = self.W, self.H
+        big = Image.new("RGBA", (W * S, H * S), (1, 2, 3, 255))
+        d = ImageDraw.Draw(big)
+        d.rounded_rectangle((0, 0, W * S - 1, H * S - 1), radius=14 * u * S, fill=PANEL_BG,
+                            outline=(255, 255, 255, 30), width=max(1, round(u * S)))
+        texts = []        # (x, y, text, font, colour, anchor) drawn after scaling down = crisp text
+        icons = []
+        self.hits = []
+        P = 14            # side padding
+
+        def X(v):
+            return v * u * S
+
+        for idx, (it, y0, y1) in enumerate(self.rows):
+            k = it["k"]
+            hov = self.hover == idx
+            if k == "head":
+                texts.append((self.p(P + 4), self.p(y1 - 9), it["t"].upper(), font("semi", self.p(10)), SUB, "ls"))
+            elif k == "sep":
+                d.line((X(P), X((y0 + y1) / 2), X(self.wl - P), X((y0 + y1) / 2)), fill=PANEL_LINE,
+                       width=max(1, round(u * S)))
+            elif k in ("toggle", "act"):
+                enabled = it.get("on", True)
+                if hov and enabled:
+                    d.rounded_rectangle((X(6), X(y0 + 2), X(self.wl - 6), X(y1 - 2)), radius=X(9), fill=PANEL_HOVER)
+                col = TEXT if enabled else DIM
+                if it.get("danger"):
+                    col = (255, 110, 130, 255)
+                tx = P + 4
+                if it.get("icon"):
+                    icons.append((it["icon"], P + 12, (y0 + y1) / 2, PINK if enabled and not it.get("danger") else col))
+                    tx = P + 32
+                f13 = font("regular", self.p(13))
+                room = self.wl - tx - P - (50 if k == "toggle" else 34 if it.get("hint") else 4)
+                texts.append((self.p(tx), self.p((y0 + y1) / 2), fit_text(it["t"], f13, self.p(room)), f13, col, "lm"))
+                if k == "toggle":
+                    on = bool(it["get"]())
+                    tw, th = 38, 22
+                    x1, cy = self.wl - P - 2, (y0 + y1) / 2
+                    x0 = x1 - tw
+                    track = PINK if on and enabled else ((84, 86, 98, 255) if enabled else (48, 50, 58, 255))
+                    d.rounded_rectangle((X(x0), X(cy - th / 2), X(x1), X(cy + th / 2)), radius=X(th / 2), fill=track)
+                    kx = x1 - th / 2 if on else x0 + th / 2
+                    r = th / 2 - 3
+                    d.ellipse((X(kx - r), X(cy - r), X(kx + r), X(cy + r)),
+                              fill=(255, 255, 255, 255) if enabled else (130, 132, 142, 255))
+                elif it.get("hint"):
+                    texts.append((self.p(self.wl - P - 4), self.p((y0 + y1) / 2), it["hint"],
+                                  font("regular", self.p(12)), SUB, "rm"))
+                self.hits.append(((0, y0, self.wl, y1), idx, None))
+            elif k == "seg":
+                texts.append((self.p(P + 4), self.p(y0 + 14), it["t"], font("regular", self.p(13)), TEXT, "lm"))
+                opts = it["opts"]
+                cur = it["get"]()
+                sx0, sx1, sy0, sy1 = P + 2, self.wl - P - 2, y0 + 30, y0 + 62
+                d.rounded_rectangle((X(sx0), X(sy0), X(sx1), X(sy1)), radius=X(10), fill=(14, 15, 19, 255))
+                segw = (sx1 - sx0 - 6) / len(opts)
+                for j, (val, label) in enumerate(opts):
+                    a = sx0 + 3 + j * segw
+                    b = a + segw
+                    if val == cur:
+                        d.rounded_rectangle((X(a), X(sy0 + 3), X(b), X(sy1 - 3)), radius=X(8), fill=PINK)
+                    elif self.hover == (idx, j):
+                        d.rounded_rectangle((X(a), X(sy0 + 3), X(b), X(sy1 - 3)), radius=X(8), fill=PANEL_HOVER)
+                    texts.append((self.p((a + b) / 2), self.p((sy0 + sy1) / 2), label,
+                                  font("semi" if val == cur else "regular", self.p(12)),
+                                  DARK if val == cur else TEXT, "mm"))
+                    self.hits.append(((a, sy0, b, sy1), idx, j))
+            elif k == "tiles":
+                cols = it.get("cols", 4)
+                tw = (self.wl - 2 * P) / cols
+                cur = it["get"]()
+                for j, (key, img, label) in enumerate(it["tiles"]):
+                    r_, c_ = divmod(j, cols)
+                    a, top = P + c_ * tw, y0 + 4 + r_ * 82
+                    box = (a + 4, top, a + tw - 4, top + 56)
+                    sel, hv = key == cur, self.hover == (idx, j)
+                    d.rounded_rectangle([X(v) for v in box], radius=X(12),
+                                        fill=(52, 54, 64, 255) if hv else (36, 37, 46, 255),
+                                        outline=PINK if sel else None, width=round(2 * u * S))
+                    icons.append(("img", img, (box[0] + box[2]) / 2, (box[1] + box[3]) / 2))
+                    texts.append((self.p((box[0] + box[2]) / 2), self.p(top + 68), label,
+                                  font("semi" if sel else "regular", self.p(11)), TEXT if sel else SUB, "mm"))
+                    self.hits.append(((a, top, a + tw, top + 80), idx, j))
+            elif k == "foot":
+                texts.append((self.p(self.wl / 2), self.p((y0 + y1) / 2), it["t"], font("regular", self.p(11)),
+                              (110, 113, 126, 255), "mm"))
+        for ic in icons:
+            if ic[0] != "img":
+                draw_panel_icon(d, X(ic[1]), X(ic[2]), X(17), ic[0], ic[3], max(2, round(1.6 * u * S)))
+        out = big.reduce(S)
+        for ic in icons:
+            if ic[0] == "img":
+                img = ic[1]
+                out.alpha_composite(img, (self.p(ic[2]) - img.width // 2, self.p(ic[3]) - img.height // 2))
+        td = ImageDraw.Draw(out)
+        for x, y, t, f, c, anchor in texts:
+            td.text((x, y), t, font=f, fill=c, anchor=anchor)
+        rgb = self.image = out.convert("RGB")   # corners stay the see-through key colour
+        if self.photo is None:
+            self.photo = ImageTk.PhotoImage(rgb)
+            self.canvas.itemconfig(self.img_item, image=self.photo)
+        else:
+            self.photo.paste(rgb)
+
+    # -- mouse
+    def find(self, ex, ey):
+        x, y = ex / self.u, ey / self.u
+        for (a, b, c, e), idx, j in self.hits:
+            if a <= x <= c and b <= y <= e:
+                return idx, j
+        return None
+
+    def set_hover(self, h):
+        if h != self.hover:
+            self.hover = h
+            self.canvas.config(cursor="hand2" if h is not None else "")
+            self.render()
+
+    def on_motion(self, e):
+        f = self.find(e.x, e.y)
+        if f is None:
+            self.set_hover(None)
+        else:
+            idx, j = f
+            self.set_hover(idx if j is None else (idx, j))
+
+    def on_click(self, e):
+        inside = 0 <= e.x_root - self.winfo_rootx() < self.W and 0 <= e.y_root - self.winfo_rooty() < self.H
+        if not inside:
+            self.close()
+            return
+        f = self.find(e.x_root - self.winfo_rootx(), e.y_root - self.winfo_rooty())
+        if f is None:
+            return
+        idx, j = f
+        it = self.rows[idx][0]
+        k = it["k"]
+        if k == "toggle" and it.get("on", True):
+            it["set"]()
+            self.render()
+        elif k == "act" and it.get("on", True):
+            self.close()
+            self.app.after(30, it["do"])
+        elif k == "seg":
+            it["set"](it["opts"][j][0])
+            self.render()
+        elif k == "tiles":
+            it["set"](it["tiles"][j][0])
+            self.render()
+
+    def check_focus(self):
+        if self.closed:
+            return
+        try:
+            f = self.focus_get()
+        except Exception:
+            f = None
+        if f is None:
+            self.close()
+
+    def close(self):
+        if self.closed:
+            return
+        self.closed = True
+        try:
+            self.grab_release()
+        except Exception:
+            pass
+        self.destroy()
+        if self.on_close_cb:
+            self.on_close_cb()
+
+
 # ---------------------------------------------------------------- user interface
 
 class App(tk.Tk):
@@ -2086,8 +2640,15 @@ class App(tk.Tk):
         self.move = None            # current dance move
         self.move_left = 0          # frames left before she switches move
         self.last_k = None          # last frame slot on the beat grid
+        self.move_k0 = 0            # slot where the current move started
+        self.move_eyes = "open"     # open / happy, for the whole move (no flickering eyes)
         self.grid_beat = None       # last beat on the beat grid (for the music notes)
-        self.idle_i = 0
+        self.clock = BeatClock()
+        self.next_blink = time.time() + 3.0
+        self.blink_until = 0.0
+        self.state_t = time.time()  # when she went idle / to sleep
+        self.shown_img = None
+        self.last_tick = time.time()
         self.dancing = False
         self.last_sound = 0.0
         self.mode = "dance"         # calm / dance / hype
@@ -2175,7 +2736,6 @@ class App(tk.Tk):
         dark_titlebar(self)
         set_window_icon(self, self.icon_file)
         self.refresh()
-        self.dance()
         self.bounce()
         self.waves()
         self.after(800, self.first_run)
@@ -2268,10 +2828,7 @@ class App(tk.Tk):
 
     def shown_bpm(self):
         """The tempo to show, rounded and steady (None while unsure)."""
-        an = self.analyzer
-        if self.dancing and an.bpm and an.tempo_conf > 0.35:
-            return int(round(an.bpm))
-        return None
+        return self.clock.shown if self.dancing else None
 
     def media_buttons(self):
         p, L = self.p, self.L
@@ -2764,7 +3321,8 @@ class App(tk.Tk):
         return {"acc": acc, "D": PAL["D"], "d": PAL["d"]}
 
     def build_sprites(self):
-        """Draws all frames of the buddy in the right outfit (cached, so each combination is drawn once)."""
+        """All frames of the buddy in the right outfit. Each frame is drawn the first time it is
+        shown and kept (per outfit/colour), so switching costs nothing up front."""
         st = self.current_style()
         key = (st["acc"], tuple(st["D"]))
         sets = self.sprite_cache.get(key)
@@ -2774,15 +3332,17 @@ class App(tk.Tk):
             def sprite(f):
                 return ImageTk.PhotoImage(make_sprite(f, st).resize((SPRITE_W * sc, SPRITE_H * sc), NEAREST))
 
-            def many(frames, blink=False):
-                normal = [sprite(f) for f in frames]
-                return (normal, [sprite(dict(f, eyes="closed")) for f in frames]) if blink else normal
+            def lazy(frames):
+                return LazyFrames(frames, sprite)
             sets = {
-                "moves": {name: many(frames, True) for name, frames in DANCE_MOVES.items()},
-                "idle": many(IDLE_FRAMES), "wave": many(WAVE_FRAMES),
-                "surprise": many(SURPRISE_FRAMES), "sleep": many(SLEEP_FRAMES),
+                # every move with open eyes, happy eyes and blinking
+                "moves": {name: {eyes: lazy([with_eyes(f, eyes) for f in frames])
+                                 for eyes in ("open", "happy", "closed")}
+                          for name, frames in DANCE_MOVES.items()},
+                "idle": lazy(IDLE_FRAMES), "wave": lazy(WAVE_FRAMES),
+                "surprise": lazy(SURPRISE_FRAMES), "sleep": lazy(SLEEP_FRAMES),
             }
-            if len(self.sprite_cache) >= 4:      # ~3.5 MB per outfit/colour – keep the latest few
+            if len(self.sprite_cache) >= 4:
                 del self.sprite_cache[next(iter(self.sprite_cache))]
             self.sprite_cache[key] = sets
         self.moves = sets["moves"]
@@ -2798,7 +3358,9 @@ class App(tk.Tk):
         self.render()
         self.react = ("wave", time.time() + 1.4)
         self.say({"santa": "Ho ho ho!", "witch": "Boo! \u266a", "cat": "Meow!",
-                  "sunglasses": "Cool, huh?", "headphones": "Now I can hear\neverything! \u266a"}.get(
+                  "sunglasses": "Cool, huh?", "headphones": "Now I can hear\neverything! \u266a",
+                  "crown": "Call me\nQueen Mixie!", "bunny": "Hop hop! \u266a", "beanie": "Nice and cosy!",
+                  "flowers": "I feel so\npretty! \u266a", "cap": "Yo! \u266a", "horns": "Hehe, a little\nbit naughty!"}.get(
             self.current_style()["acc"], "Thanks! \u266a"), 1.8)
 
     def toggle_dress(self):
@@ -2820,43 +3382,46 @@ class App(tk.Tk):
         return tk.Menu(self, tearoff=0, bg="#1b1c21", fg="#ffffff", activebackground="#ffffff",
                        activeforeground="#0e0f13", selectcolor="#ff8cc6", bd=0, font=("Segoe UI", 10))
 
+    def open_panel(self, btn, items, width=300):
+        if getattr(self, "panel", None) is not None and not self.panel.closed:
+            self.panel.close()
+        self.panel = Panel(self, self.header_buttons()[btn], items, width)
+
     def open_main_menu(self):
-        m = self.new_menu()
-        self._menu_vars = []
-
-        def check(label, value, cmd, state="normal"):
-            v = tk.BooleanVar(value=bool(value))
-            self._menu_vars.append(v)
-            m.add_checkbutton(label=label, variable=v, command=cmd, state=state)
-
-        check("Always on top", self.cfg["topmost"], self.toggle_topmost)
-        check("Compact mode", self.cfg["compact"], self.toggle_compact)
-        check("Minimize to the tray (by the clock)", self.cfg["tray"], self.toggle_tray,
-              "normal" if self.tray and self.tray.icon else "disabled")
-        m.add_separator()
-
-        check("Lower the music when someone talks on Discord", self.cfg["duck"]["on"], self.toggle_duck)
-        lvl_menu = self.new_menu()
-        lv = tk.IntVar(value=self.cfg["duck"]["level"])
-        self._menu_vars.append(lv)
-        for pct, label in ((15, "A lot (15 %)"), (30, "Medium (30 %)"), (50, "A little (50 %)")):
-            lvl_menu.add_radiobutton(label=label, value=pct, variable=lv,
-                                     command=lambda pct=pct: self.set_duck_level(pct))
-        m.add_cascade(label="How much the music is lowered", menu=lvl_menu)
-        m.add_separator()
-
-        check("Hotkeys", self.cfg["hotkeys"], self.toggle_hotkeys)
-        m.add_command(label="Show hotkeys\u2026", command=self.show_hotkeys)
-        m.add_separator()
-        n = len(self.cfg["hidden"])
+        """The settings panel behind the ⋯ button."""
+        cfg = self.cfg
+        tray_ok = bool(self.tray and self.tray.icon)
+        items = [
+            {"k": "head", "t": "Window"},
+            {"k": "toggle", "t": "Always on top", "icon": "pin",
+             "get": lambda: cfg["topmost"], "set": self.toggle_topmost},
+            {"k": "toggle", "t": "Compact mode", "icon": "compact",
+             "get": lambda: cfg["compact"], "set": self.toggle_compact},
+            {"k": "toggle", "t": "Minimize to the tray", "icon": "tray", "on": tray_ok,
+             "get": lambda: cfg["tray"] and tray_ok, "set": self.toggle_tray},
+            {"k": "head", "t": "Voice chat"},
+            {"k": "toggle", "t": "Lower music when people talk", "icon": "voice",
+             "get": lambda: cfg["duck"]["on"], "set": self.toggle_duck},
+            {"k": "seg", "t": "How much lower", "opts": [(15, "A lot"), (30, "Medium"), (50, "A little")],
+             "get": lambda: cfg["duck"]["level"], "set": self.set_duck_level},
+            {"k": "head", "t": "Hotkeys"},
+            {"k": "toggle", "t": "Hotkeys (work in games too)", "icon": "keys",
+             "get": lambda: cfg["hotkeys"], "set": self.toggle_hotkeys},
+            {"k": "act", "t": "Show hotkeys", "icon": "keys", "hint": "\u203a", "do": self.show_hotkeys},
+            {"k": "sep"},
+        ]
+        n = len(cfg["hidden"])
         if n:
-            m.add_command(label=f"Show hidden programs ({n})", command=self.unhide_all)
+            items.append({"k": "act", "t": "Show hidden programs", "icon": "eye", "hint": str(n),
+                          "do": self.unhide_all})
         if sys.platform == "win32":
-            m.add_command(label="Create desktop shortcut", command=self.make_shortcut)
-        m.add_separator()
-        m.add_command(label="About Mixie", command=self.show_about)
-        m.add_command(label="Quit", command=self.on_close)
-        self.popup_at(m, self.header_buttons()["menubtn"])
+            items.append({"k": "act", "t": "Create desktop shortcut", "icon": "link", "do": self.make_shortcut})
+        items += [
+            {"k": "act", "t": "About Mixie", "icon": "info", "hint": APP_VERSION, "do": self.show_about},
+            {"k": "act", "t": "Quit Mixie", "icon": "power", "danger": True, "do": self.on_close},
+            {"k": "foot", "t": f"Mixie {APP_VERSION}  \u00b7  made by {AUTHOR}"},
+        ]
+        self.open_panel("menubtn", items, 310)
 
     def menu_icon(self, key, build):
         img = self.menu_icons.get(key)
@@ -2867,23 +3432,31 @@ class App(tk.Tk):
         return img
 
     def open_outfit_menu(self):
-        m = self.new_menu()
-        ov = tk.StringVar(value=self.cfg.get("outfit", "auto"))
-        self._menu_vars = [ov]
+        """A grid with Mixie in every outfit."""
         st = self.current_style()
-        u = max(1, round(self.S))
+        tiles = []
         for acc in OUTFITS:
             shown = season_outfit() if acc == "auto" else acc
             look = dict(st, acc=shown)
-            img = self.menu_icon(("outfit", shown, tuple(st["D"]), acc == "auto"),
-                                 lambda look=look, auto=acc == "auto": menu_tile(outfit_head(look, u), auto, u))
-            m.add_radiobutton(label="  " + OUTFIT_NAMES[acc], value=acc, variable=ov, image=img, compound="left",
-                              command=lambda acc=acc: self.set_outfit(acc))
-        m.add_separator()
-        fv = tk.BooleanVar(value=self.cfg.get("dress_follow", True))
-        self._menu_vars.append(fv)
-        m.add_checkbutton(label="Dress follows the wave colours", variable=fv, command=self.toggle_dress)
-        self.popup_at(m, self.header_buttons()["outfitbtn"])
+            head = outfit_head(look, 1)
+            k = max(1, round(42 * self.S / max(head.width, head.height)))
+            img = head.resize((head.width * k, head.height * k), NEAREST)
+            if acc == "auto":   # small star in the corner = picked by season
+                big = Image.new("RGBA", (img.width * 4, img.height * 4), (0, 0, 0, 0))
+                r = round(5 * self.S) * 4
+                draw_panel_icon(ImageDraw.Draw(big), big.width - r, r, 2 * r, "star", (255, 216, 74, 255), 1)
+                img = img.copy()
+                img.alpha_composite(big.reduce(4))
+            tiles.append((acc, img, OUTFIT_NAMES[acc]))
+        items = [
+            {"k": "head", "t": "Mixie's outfit"},
+            {"k": "tiles", "tiles": tiles, "cols": 4,
+             "get": lambda: self.cfg.get("outfit", "auto"), "set": self.set_outfit},
+            {"k": "sep"},
+            {"k": "toggle", "t": "Dress follows the wave colours", "icon": "star",
+             "get": lambda: self.cfg.get("dress_follow", True), "set": self.toggle_dress},
+        ]
+        self.open_panel("outfitbtn", items, 340)
 
     def open_device_menu(self):
         m = self.new_menu()
@@ -3199,27 +3772,22 @@ class App(tk.Tk):
         return self.sprite_x, y, self.sprite_x + self.sprite_w, y + self.sprite_h
 
     def beat_clock(self):
-        """(seconds per beat, time of a beat) when the tempo of the music is known, else None.
-        Very fast songs are danced in half time and very slow ones in double time."""
-        an = self.analyzer
-        if not (an.bpm and an.tempo_conf > 0.35 and an.beat_len > 0 and time.time() - an.updated < 0.5):
+        """(seconds per beat, time of a beat) while she follows the tempo of the music, else None."""
+        c = self.clock
+        if not (self.dancing and c.locked):
             return None
-        L = an.beat_len
-        if 60.0 / L > 150:
-            L *= 2
-        elif 60.0 / L < 75:
-            L /= 2
-        return L, an.beat_at
+        return c.L, time.time() - c.frac() * c.L
 
-    def grid(self, now, at, unit):
-        """Slot number on the beat grid (counted from a fixed start, so it only ever goes up)
-        and the time the next slot starts."""
-        off = (at - self.started_t) % unit
-        k = math.floor((now - self.started_t - off) / unit + 0.02)
-        return k, self.started_t + off + (k + 1) * unit
+    def free_beat(self):
+        """Seconds per beat when the tempo is unknown: follows how intense the music is."""
+        return {"calm": 0.8, "dance": 0.56 - 0.12 * self.band_vals[0], "hype": 0.44}[self.mode]
 
     def dance(self):
+        """Picks the buddy's picture. Called ~30 times a second; only changes the image when
+        the frame really changes."""
         now = time.time()
+        dt = min(0.25, now - self.last_tick)
+        self.last_tick = now
         silence = now - self.last_sound
         if silence < 2.0:
             state = "dance"
@@ -3233,76 +3801,66 @@ class App(tk.Tk):
                 self.say(self.pick_line(LINES_BACK, "back"), 2.2)
                 self.burst("star", 6)
             self.state_name = state
-            self.dance_i = self.idle_i = 0
+            self.state_t = now
+            self.move = None
         self.dancing = state == "dance"
 
         # how intense is the music? (bass counts most) -> calm / normal / hype
         b = self.band_vals
         e = 0.6 * b[0] + 0.4 * (sum(b) / 4)
-        self.energy += (e - self.energy) * 0.25
+        self.energy += (e - self.energy) * min(1.0, dt / 0.9)
         if self.mode != "hype" and self.energy > 0.66:
             self.mode = "hype"
         elif self.mode != "calm" and self.energy < 0.26:
             self.mode = "calm"
         elif self.mode == "hype" and self.energy < 0.56 or self.mode == "calm" and self.energy > 0.34:
             self.mode = "dance"
+        self.clock.update(now, self.analyzer, self.dancing, self.free_beat())
+
+        # blinking: a short, natural blink every few seconds (sometimes twice)
+        if now >= self.next_blink:
+            self.blink_until = now + 0.12
+            self.next_blink = now + (0.32 if random.random() < 0.2 else random.uniform(2.6, 6.0))
+        blinking = now < self.blink_until
 
         react = self.react if self.react and self.react[1] > now else None
         self.react = react
         if react:
             frames = self.wave_sprites if react[0] == "wave" else self.surprise_sprites
-            self.idle_i = (self.idle_i + 1) % len(frames)
-            img, delay = frames[self.idle_i], 180
+            img = frames[int(now / 0.18) % len(frames)]
         elif state == "dance":
             pool = MOVE_POOLS[self.mode]
-            clock = self.beat_clock()
-            if clock:
-                # Follow the tempo: every frame lands exactly on the beat grid
-                L, at = clock
-                fpb = MOVE_FPB.get(self.move, 2)
-                k, nxt = self.grid(now, at, L / fpb)
-                if k != self.last_k:
-                    self.last_k = k
-                    self.move_left -= 1
-                # switch moves on the first beat of a bar (every 4 beats)
-                if self.move not in pool or (self.move_left <= 0 and k % (fpb * 4) == 0):
-                    choices = [m for m in pool if m != self.move] or pool
-                    self.move = random.choice(choices)
-                    fpb = MOVE_FPB.get(self.move, 2)
-                    k, nxt = self.grid(now, at, L / fpb)
-                    self.last_k = k
-                    self.move_left = fpb * 4 * random.choice((2, 3, 4))   # 2-4 bars
-                normal, blink = self.moves[self.move]
-                self.dance_i = k % len(normal)
-                img = (blink if random.random() < BLINK_CHANCE else normal)[self.dance_i]
-                delay = max(15, int((nxt - now) * 1000) + 2)
-            else:
-                # tempo unknown: dance at a speed that follows the bass
-                if self.move not in pool or self.move_left <= 0:   # time for a new move
-                    choices = [m for m in pool if m != self.move] or pool
-                    self.move = random.choice(choices)
-                    self.dance_i = -1
-                    self.move_left = len(DANCE_MOVES[self.move]) * random.choice((2, 3, 4))
-                normal, blink = self.moves[self.move]
+            fpb = MOVE_FPB.get(self.move, 2)
+            k = math.floor(self.clock.now_phase() * fpb)
+            if k != self.last_k:
+                self.last_k = k
                 self.move_left -= 1
-                self.dance_i = (self.dance_i + 1) % len(normal)
-                img = (blink if random.random() < BLINK_CHANCE else normal)[self.dance_i]
-                speed = {"calm": 1.6, "dance": 1.15 - 0.4 * b[0], "hype": 0.8}[self.mode]
-                delay = int(DANCE_MS * speed)
+            # switch moves on the first beat of a bar (every 4 beats)
+            if self.move not in pool or (self.move_left <= 0 and k % (fpb * 4) == 0):
+                choices = [m for m in pool if m != self.move] or pool
+                self.move = random.choice(choices)
+                self.move_eyes = "happy" if random.random() < 0.35 else "open"
+                fpb = MOVE_FPB.get(self.move, 2)
+                k = math.floor(self.clock.now_phase() * fpb)
+                self.last_k = self.move_k0 = k
+                self.move_left = fpb * 4 * random.choice((2, 3, 4))   # 2-4 bars
+            sets = self.moves[self.move]
+            frames = sets["closed" if blinking else self.move_eyes]
+            self.dance_i = (k - self.move_k0) % len(frames)
+            img = frames[self.dance_i]
         elif state == "sleep":
-            self.idle_i = (self.idle_i + 1) % len(self.sleep_sprites)
-            img, delay = self.sleep_sprites[self.idle_i], SLEEP_MS
+            img = self.sleep_sprites[int((now - self.state_t) * 1000 / SLEEP_MS) % len(self.sleep_sprites)]
             if now - self.last_z_t > 1.5:
                 self.last_z_t = now
                 x0, y0, x1, _ = self.girl_box()
                 self.spawn("z", (205, 220, 255), x0 + self.p(18), y0 + self.p(10) + SPRITE_TOP * self.sc,
                            vx=-self.p(14), vy=-self.p(13), life=2.8)
         else:
-            self.idle_i = (self.idle_i + 1) % len(self.idle_sprites)
-            img, delay = self.idle_sprites[self.idle_i], IDLE_MS
-        self.canvas.itemconfig(self.sprite_item, image=img)
+            img = self.idle_sprites[int((now - self.state_t) * 1000 / IDLE_MS) % len(self.idle_sprites)]
+        if img is not self.shown_img:
+            self.shown_img = img
+            self.canvas.itemconfig(self.sprite_item, image=img)
         self.update_bubble()
-        self.after(delay, self.dance)
 
     # -- effects: notes, hearts, Zzz, stars
     def fx_images(self, pattern, color):
@@ -3382,26 +3940,30 @@ class App(tk.Tk):
             self.after(33, self.anim)
 
     def bounce(self):
-        """She bounces on the bass hits (more in hype mode) and jumps when you click her."""
+        """Runs ~30 times a second: picks her picture, bobs her on the beat and makes her jump
+        when you click her. One loop for everything, so the picture and the bob never get out of step."""
         self.handle_events()
         if getattr(self, "_closing", False):
             return
+        try:
+            self.dance()
+        except Exception:
+            if not getattr(self, "_dance_err", False):   # write it down once, keep running
+                self._dance_err = True
+                log_error(traceback.format_exc())
         y = self.p(SPRITE_Y)
-        clock = self.beat_clock() if self.dancing else None
-        if clock:
-            # bob down on every beat and up in between, in time with the music
-            L, at = clock
-            now = time.time()
-            ph = ((now - at) / L) % 1.0
-            amp = {"calm": 1.5, "dance": 3.5, "hype": 6.0}[self.mode]
-            y -= self.p(amp) * math.sin(math.pi * ph)
-            beat_no, _ = self.grid(now, at, L)
-            if beat_no != self.grid_beat:
-                self.grid_beat = beat_no
-                self.spawn_note()
-        elif self.dancing:
-            amp = {"calm": 1.0, "dance": 3.0, "hype": 6.0}[self.mode]
-            y -= self.p(amp) * self.beat
+        if self.dancing and not self.react:
+            if self.clock.locked:
+                # bob down on every beat and up in between, in time with the music
+                amp = {"calm": 1.5, "dance": 3.5, "hype": 6.0}[self.mode]
+                y -= self.p(amp) * math.sin(math.pi * self.clock.frac())
+                beat_no = math.floor(self.clock.now_phase())
+                if beat_no != self.grid_beat:
+                    self.grid_beat = beat_no
+                    self.spawn_note()
+            else:
+                amp = {"calm": 1.0, "dance": 3.0, "hype": 6.0}[self.mode]
+                y -= self.p(amp) * self.beat
         if self.hop_t is not None:
             t = time.time() - self.hop_t
             if t < 0.42:

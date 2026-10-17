@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.3.0
+- Mixie stays on the beat much better: her own beat clock follows the music smoothly, and audio that arrives
+  in bursts no longer throws off the timing.
+- Fixed: with NumPy 2 the beat times were stored with too little precision, which hurt the sync.
+- Fixed: she could freeze on one picture (while still bouncing) when the tempo estimate went wrong.
+- Fixed: her eyes flickered – she now blinks naturally every few seconds, and keeps the same eyes for a whole move.
+- The BPM no longer disappears in breaks without drums; it holds for a few seconds and only changes when the
+  tempo really does.
+- Eight new dance moves: twist, cheer, kick, moonwalk, bop, pump, wave arms and squat (17 in total).
+- While waiting she now also looks around and stretches.
+- Six new outfits: crown, bunny ears, flower crown, beanie, cap and devil horns – with new seasonal picks.
+- New settings panel with switches, and a new outfit picker with Mixie in every outfit.
+- A bigger Mixie in the app and desktop icon.
+- Changing outfit or song colour no longer causes a short stutter.
+
 ## 1.2.3
 - Links point to the right repository (`Modda-ctrl/Mixie`).
 

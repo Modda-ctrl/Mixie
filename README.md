@@ -48,23 +48,25 @@ And while you play, **Mixie** – the pixel buddy in the corner – dances to yo
 
 - **She dances on the beat.** Mixie works out the tempo (BPM) and where the beats fall, so every move,
   bounce and music note lands in time.
-- **Nine dance moves** – classic, sway, jump, disco, side-step, clap, robot, headbang and spin – picked to fit
-  the music: calm songs get swaying and clapping, heavy bass gets headbanging and spins.
-- **She has a life of her own.** She waits impatiently when nothing plays, falls asleep after a while,
-  waves when you hover over her and has something to say when you click her.
+- **17 dance moves** – from swaying, bopping and the twist to the moonwalk, high kicks, fist pumps,
+  headbanging and spins – picked to fit the music: calm songs get the gentle ones, heavy bass gets the wild ones.
+  She keeps the beat through breaks without drums, so she never stops mid-song.
+- **She has a life of her own.** She blinks, looks around and stretches while she waits for music, falls
+  asleep after a while, waves when you hover over her and has something to say when you click her.
 - **Neon sound waves** in an early-2010s style follow the bass, mids and treble, and change colour
   with every new song.
 
 <p align="center">
-  <img src="docs/moves.png" alt="Mixie's nine dance moves" width="100%">
+  <img src="docs/moves.png" alt="Mixie's 17 dance moves" width="100%">
 </p>
 
 <p align="center">
-  <img src="docs/outfits-showcase.png" alt="Six outfits: bow, headphones, cat ears, santa hat, witch hat and sunglasses" width="100%">
+  <img src="docs/outfits-showcase.png" alt="Twelve outfits, from a bow and headphones to a crown, bunny ears and a witch hat" width="100%">
 </p>
 
-- **Outfits.** Bow, headphones, cat ears, santa hat, witch hat or sunglasses – or *Automatic*, which picks one
-  by season. Her dress follows the colour of the waves.
+- **Twelve outfits.** Bow, headphones, cat ears, bunny ears, crown, flower crown, beanie, cap, sunglasses,
+  devil horns, witch hat and santa hat – or *Automatic*, which picks one by season. Her dress follows the colour
+  of the waves.
 
 <p align="center">
   <img src="docs/gaming.png" alt="Hotkeys that work in-game, and the music stepping aside when someone talks on Discord" width="100%">
@@ -118,13 +120,12 @@ They work everywhere – including inside full-screen games. Switch them off in 
 
 ## 💡 Tips
 
-- The buttons at the top right are **Outfit**, **Audio device**, **Profile** and **⋯** (everything else).
+- The buttons at the top right are **Outfit**, **Audio device**, **Profile** and **⋯** (settings).
 - **Right-click** a card to hide a program (for example *System sounds*); right-click again to bring it back.
 - **Click Mixie.** Try it while she's asleep, too.
 
 <p align="center">
-  <img src="docs/menu_outfit.png" alt="The outfit menu" width="49%">
-  <img src="docs/menu_device.png" alt="The audio device menu" width="49%">
+  <img src="docs/settings.png" alt="The settings panel and the outfit picker" width="100%">
 </p>
 
 ## 🔧 How it works
