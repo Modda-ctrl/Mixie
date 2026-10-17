@@ -1,8 +1,8 @@
 name: Build Mixie.exe
 
 on:
-  push:
-    tags: ["v*"]
+  release:
+    types: [published]   # publishing a release builds the exe and attaches it
   pull_request:
   workflow_dispatch:
 
@@ -72,9 +72,10 @@ jobs:
             dist/SHA256SUMS.txt
 
       - name: Attach to the release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
         with:
           files: |
             dist/Mixie.exe
+            dist/Install Mixie.bat
             dist/SHA256SUMS.txt

@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.3.0
+## 1.3.0 – 2026-10-18
 - Mixie stays on the beat much better: her own beat clock follows the music smoothly, and audio that arrives
   in bursts no longer throws off the timing.
 - Fixed: with NumPy 2 the beat times were stored with too little precision, which hurt the sync.
