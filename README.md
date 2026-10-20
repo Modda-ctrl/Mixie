@@ -187,7 +187,10 @@ attestation, so you can check that it was built from this code. More in [SECURIT
 ## ❤️ Credits
 
 Mixie is made by **[Modda-ctrl](https://github.com/Modda-ctrl)** – the app, the pixel art and the dance moves.
-Bug reports and ideas are very welcome in the [issues](../../issues/new/choose).
+Bug reports and ideas are very welcome in the [issues](../../issues/new/choose), and so are new outfits and dance
+moves: see [CONTRIBUTING.md](CONTRIBUTING.md) – a new hat is a few lines of pixel coordinates.
+
+**Install with winget:** `winget install Modda-ctrl.Mixie` *(once the package has been accepted)*.
 
 ## 📄 License
 
