@@ -1,0 +1,32 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
+PackageIdentifier: Modda-ctrl.Mixie
+PackageVersion: 1.3.0
+PackageLocale: en-US
+Publisher: Modda-ctrl
+PublisherUrl: https://github.com/Modda-ctrl
+PublisherSupportUrl: https://github.com/Modda-ctrl/Mixie/issues
+Author: Modda-ctrl
+PackageName: Mixie
+PackageUrl: https://github.com/Modda-ctrl/Mixie
+License: MIT
+LicenseUrl: https://github.com/Modda-ctrl/Mixie/blob/main/LICENSE
+ShortDescription: Per-app volume mixer for Windows with a pixel buddy who dances to your music.
+Description: |-
+  Mixie gives every program that plays sound its own slider - Spotify, your browser, your game, Discord - in one
+  small window for your second monitor. Profiles, in-game hotkeys, a microphone slider, per-app audio devices,
+  and it lowers the music when someone talks on Discord. Mixie, the pixel buddy, dances on the beat of your music.
+Moniker: mixie
+Tags:
+- audio
+- volume
+- volume-mixer
+- mixer
+- music
+- gaming
+- spotify
+- discord
+- pixel-art
+- second-monitor
+ReleaseNotesUrl: https://github.com/Modda-ctrl/Mixie/blob/main/CHANGELOG.md
+ManifestType: defaultLocale
+ManifestVersion: 1.6.0
